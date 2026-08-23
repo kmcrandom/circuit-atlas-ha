@@ -1,0 +1,430 @@
+.root {
+  --map-ink: #18312b;
+  --map-muted: #687873;
+  --map-line: #dbe3df;
+  --map-accent: #e06f43;
+  --map-teal: #28695b;
+  color: var(--map-ink);
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.frame {
+  background: #ffffff;
+  border: 1px solid var(--map-line);
+  border-radius: 1.2rem;
+  box-shadow: 0 14px 38px rgb(24 49 43 / 9%);
+  overflow: hidden;
+}
+
+.toolbar {
+  align-items: center;
+  background: linear-gradient(135deg, #fbfcfa, #f0f5f2);
+  border-bottom: 1px solid var(--map-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: space-between;
+  padding: 0.8rem 0.9rem;
+}
+
+.titleGroup {
+  min-width: 10rem;
+}
+
+.titleGroup h2 {
+  font-size: 0.98rem;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.titleGroup p {
+  color: var(--map-muted);
+  font-size: 0.72rem;
+  margin: 0.15rem 0 0;
+}
+
+.toolbarControls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.toolbarButton {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #bdcac5;
+  border-radius: 999px;
+  color: #28574b;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 750;
+  justify-content: center;
+  min-height: 2.1rem;
+  min-width: 2.1rem;
+  padding: 0.35rem 0.65rem;
+}
+
+.toolbarButton:hover {
+  background: #edf4f0;
+}
+
+.toolbarButton:focus-visible,
+.selectButton:focus-visible,
+.table input:focus-visible {
+  outline: 3px solid rgb(19 95 221 / 35%);
+  outline-offset: 2px;
+}
+
+.zoomOutput {
+  color: var(--map-muted);
+  font-size: 0.72rem;
+  min-width: 3.1rem;
+  text-align: center;
+}
+
+.connectionNotice {
+  align-items: center;
+  background: #fff7e8;
+  border-bottom: 1px solid #efd7aa;
+  color: #654b18;
+  display: flex;
+  font-size: 0.75rem;
+  font-weight: 700;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+}
+
+.dashSample {
+  border-top: 2px dashed #a46125;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 2rem;
+}
+
+.canvasShell {
+  background:
+    radial-gradient(circle at 20% 10%, rgb(71 109 98 / 8%), transparent 35%),
+    #e9efec;
+  min-height: 18rem;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  width: 100%;
+}
+
+.canvas {
+  cursor: grab;
+  display: block;
+  height: 100%;
+  max-height: 72vh;
+  min-height: 18rem;
+  outline: none;
+  width: 100%;
+}
+
+.canvas:active {
+  cursor: grabbing;
+}
+
+.canvas:focus-visible {
+  box-shadow: inset 0 0 0 4px rgb(19 95 221 / 48%);
+}
+
+.background {
+  pointer-events: none;
+}
+
+.backgroundTint {
+  fill: rgb(255 255 255 / 4%);
+  pointer-events: none;
+}
+
+.connectionLine {
+  fill: none;
+  stroke: #9a5b26;
+  stroke-dasharray: 8 7;
+  stroke-linecap: round;
+  stroke-width: 2.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.connectionPower {
+  stroke: #b95737;
+}
+
+.connectionControl {
+  stroke: #5266a7;
+}
+
+.marker {
+  cursor: pointer;
+  outline: none;
+}
+
+.markerBody {
+  fill: #ffffff;
+  stroke: #245e51;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.markerGlyph {
+  fill: none;
+  stroke: #245e51;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.kindPanel .markerBody {
+  fill: #e4eeeb;
+  stroke: #194c42;
+}
+
+.kindBox .markerBody {
+  fill: #ecf2ed;
+}
+
+.kindSwitch .markerBody {
+  fill: #fff2e9;
+  stroke: #a55334;
+}
+
+.kindReceptacle .markerBody {
+  fill: #f5f0df;
+  stroke: #756126;
+}
+
+.kindFixture .markerBody {
+  fill: #fff8cc;
+  stroke: #907b1e;
+}
+
+.kindAppliance .markerBody {
+  fill: #edf0f7;
+  stroke: #53617d;
+}
+
+.kindJunction .markerBody {
+  fill: #f2ebf6;
+  stroke: #745487;
+}
+
+.uncertain .markerBody {
+  stroke-dasharray: 4 3;
+}
+
+.highlighted .markerBody {
+  fill: #ffe4d6;
+  stroke: var(--map-accent);
+  stroke-width: 3;
+}
+
+.selectionRing {
+  fill: rgb(255 255 255 / 80%);
+  stroke: transparent;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.selected .selectionRing {
+  fill: rgb(255 255 255 / 88%);
+  stroke: var(--map-accent);
+}
+
+.marker:focus-visible .selectionRing {
+  stroke: #135fdd;
+  stroke-dasharray: 4 3;
+}
+
+.markerLabel {
+  fill: #17312b;
+  font-size: 10px;
+  font-weight: 800;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: rgb(255 255 255 / 95%);
+  stroke-linejoin: round;
+  stroke-width: 4px;
+  text-anchor: middle;
+}
+
+.smartDot {
+  fill: #168b71;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.emptyOverlay,
+.errorOverlay {
+  align-items: center;
+  background: rgb(247 250 248 / 91%);
+  border: 1px solid #d6e0db;
+  border-radius: 0.8rem;
+  color: var(--map-muted);
+  display: flex;
+  font-size: 0.82rem;
+  inset: 50% auto auto 50%;
+  justify-content: center;
+  max-width: min(24rem, calc(100% - 2rem));
+  padding: 0.75rem 1rem;
+  pointer-events: none;
+  position: absolute;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.errorOverlay {
+  background: #fff1ef;
+  border-color: #e7bcb5;
+  color: #7d3228;
+}
+
+.footer {
+  align-items: center;
+  border-top: 1px solid var(--map-line);
+  color: var(--map-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  gap: 0.6rem 1rem;
+  justify-content: space-between;
+  padding: 0.62rem 0.9rem;
+}
+
+.sourceBadge {
+  background: #e8efec;
+  border-radius: 999px;
+  color: #355a50;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+}
+
+.summary {
+  background: #ffffff;
+  border: 1px solid var(--map-line);
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.summary h3 {
+  font-size: 0.9rem;
+  margin: 0;
+  padding: 0.85rem 1rem 0.35rem;
+}
+
+.summaryIntro {
+  color: var(--map-muted);
+  font-size: 0.76rem;
+  margin: 0;
+  padding: 0 1rem 0.7rem;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.table caption {
+  font-weight: 750;
+  padding: 0.65rem 1rem 0.4rem;
+  text-align: left;
+}
+
+.table th,
+.table td {
+  border-top: 1px solid #e5ebe8;
+  padding: 0.58rem 0.8rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table th {
+  color: var(--map-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.table input {
+  background: #ffffff;
+  border: 1px solid #bdcac5;
+  border-radius: 0.45rem;
+  color: var(--map-ink);
+  font: inherit;
+  max-width: 5.5rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.45rem;
+  width: 100%;
+}
+
+.selectButton {
+  background: none;
+  border: 0;
+  color: #1d5d50;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 750;
+  padding: 0;
+  text-align: left;
+}
+
+.selectButton:hover {
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--map-muted);
+}
+
+.emptyText {
+  color: var(--map-muted);
+  font-size: 0.78rem;
+  margin: 0;
+  padding: 0.8rem 1rem;
+}
+
+.screenReader {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (max-width: 42rem) {
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbarControls {
+    justify-content: space-between;
+  }
+
+  .canvas,
+  .canvasShell {
+    min-height: 22rem;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .markerBody,
+  .selectionRing {
+    transition: fill 130ms ease, stroke 130ms ease;
+  }
+}

@@ -1,0 +1,13 @@
+configuration:
+  cloudflare_access:
+    name: Cloudflare Access
+    description: Verify users arriving through the optional Cloudflare Tunnel.
+    fields:
+      team_domain:
+        name: Team domain
+        description: Your team hostname, such as example.cloudflareaccess.com.
+      audience:
+        name: Application audience (AUD)
+        description: The Access application AUD tag shown in Cloudflare Zero Trust.
+network:
+  8099/TCP: Web app endpoint for a Cloudflare Tunnel protected by Access

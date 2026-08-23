@@ -1,0 +1,358 @@
+.wizard {
+  display: grid;
+  width: min(100%, 820px);
+  gap: 18px;
+  margin: 0 auto;
+  padding: clamp(16px, 3vw, 26px);
+}
+
+.header {
+  display: grid;
+  gap: 15px;
+}
+
+.headerTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.draftMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.safety {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  border: 1px solid #e0b7ac;
+  border-radius: 13px;
+  background: #fff2ef;
+  padding: 12px 14px;
+  color: #7c392f;
+  font-size: 0.78rem;
+  line-height: 1.48;
+}
+
+.safety strong {
+  display: block;
+  color: #65281f;
+}
+
+.step {
+  display: grid;
+  gap: 17px;
+}
+
+.stepHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stepTitle {
+  margin: 0;
+  color: var(--ink, #18231d);
+  font-size: 1.12rem;
+  letter-spacing: -0.02em;
+}
+
+.stepCopy {
+  margin: 4px 0 0;
+  color: var(--ink-muted, #68736c);
+  font-size: 0.78rem;
+  line-height: 1.48;
+}
+
+.photoActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.photoInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.photoButton {
+  display: grid;
+  min-height: 112px;
+  place-items: center;
+  border: 1px dashed #aebcaf;
+  border-radius: 14px;
+  background: #f7f9f5;
+  color: #315e48;
+  text-align: center;
+  cursor: pointer;
+}
+
+.photoButton strong,
+.photoButton span {
+  display: block;
+}
+
+.photoButton strong {
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+.photoButton span {
+  margin-top: 2px;
+  color: #68736c;
+  font-size: 0.66rem;
+}
+
+.photoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 9px;
+}
+
+.photoCard {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #d7ddd7;
+  border-radius: 12px;
+  background: #f5f7f2;
+}
+
+.photoCard img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.photoCardMeta {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.photoRemove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgb(255 254 249 / 92%);
+}
+
+.collection {
+  display: grid;
+  gap: 11px;
+}
+
+.recordCard {
+  display: grid;
+  gap: 13px;
+  border: 1px solid var(--line, #d8ddd7);
+  border-radius: 14px;
+  background: var(--surface-muted, #f5f7f2);
+  padding: 13px;
+}
+
+.recordHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recordTitle {
+  margin: 0;
+  color: var(--ink, #18231d);
+  font-size: 0.84rem;
+}
+
+.endsGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.endCard {
+  border: 1px solid #ccd7d0;
+  border-radius: 11px;
+  margin: 0;
+  min-width: 0;
+  padding: 10px;
+}
+
+.endTitle {
+  color: #315e48;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0 4px;
+}
+
+.entryPreview {
+  position: relative;
+  display: grid;
+  min-height: 180px;
+  grid-template-columns: repeat(var(--gang-count, 1), minmax(0, 1fr));
+  align-items: center;
+  gap: 5px;
+  border: 10px solid #b8ada0;
+  border-radius: 10px;
+  background: #ded9d0;
+  padding: 18px;
+  box-shadow: inset 0 0 0 2px #877d71;
+}
+
+.gangCell {
+  display: grid;
+  min-height: 100px;
+  place-items: center;
+  border: 1px dashed #8f887e;
+  border-radius: 8px;
+  color: #665f56;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.cableMarker {
+  position: absolute;
+  display: grid;
+  min-width: 31px;
+  height: 22px;
+  place-items: center;
+  border-radius: 7px;
+  background: #32483d;
+  color: white;
+  font-size: 0.57rem;
+  font-weight: 800;
+}
+
+.markerTop { top: -9px; transform: translateX(-50%); }
+.markerBottom { bottom: -9px; transform: translateX(-50%); }
+.markerLeft { left: -12px; transform: translateY(-50%); }
+.markerRight { right: -12px; transform: translateY(-50%); }
+.markerBack { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.summaryStat {
+  border: 1px solid #dbe0da;
+  border-radius: 11px;
+  background: #f7f9f5;
+  padding: 10px;
+}
+
+.summaryStat strong,
+.summaryStat span {
+  display: block;
+}
+
+.summaryStat strong {
+  color: var(--ink, #18231d);
+  font-size: 1.05rem;
+}
+
+.summaryStat span {
+  margin-top: 2px;
+  color: var(--ink-muted, #68736c);
+  font-size: 0.64rem;
+}
+
+.reviewList {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reviewItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid #e2d4a6;
+  border-radius: 10px;
+  background: #fff9e8;
+  padding: 9px 10px;
+  color: #73591f;
+  font-size: 0.73rem;
+  line-height: 1.4;
+}
+
+.reviewButton {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.footer {
+  position: sticky;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #ccd6cd;
+  border-radius: 15px;
+  background: rgb(255 254 249 / 95%);
+  padding: 10px 12px;
+  box-shadow: 0 12px 30px rgb(30 44 35 / 15%);
+  backdrop-filter: blur(14px);
+}
+
+.footerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .wizard {
+    border: 0;
+    border-radius: 0;
+    padding: 14px;
+    box-shadow: none;
+  }
+
+  .headerTop,
+  .stepHead {
+    display: grid;
+  }
+
+  .draftMeta {
+    justify-content: flex-start;
+  }
+
+  .photoActions,
+  .summaryGrid,
+  .endsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .footerRight {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .footerRight button:last-child {
+    grid-column: 1 / -1;
+  }
+}
