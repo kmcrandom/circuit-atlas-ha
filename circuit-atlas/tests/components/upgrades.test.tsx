@@ -43,6 +43,8 @@ describe("upgrade readiness board", () => {
     expect(screen.getByText("CurrentCo Toggle")).toBeTruthy();
     expect(screen.getByText("FutureCo Matter Dimmer")).toBeTruthy();
     expect(screen.getByText("Add smart dimming while preserving local control")).toBeTruthy();
+    expect(screen.getByText(/DEV-0001/)).toBeTruthy();
+    expect(screen.queryByText(/UPG-0001/)).toBeNull();
     expect(screen.getAllByText("Needs facts").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("Upgrade status for Hall controller"), {
       target: { value: "planned" },

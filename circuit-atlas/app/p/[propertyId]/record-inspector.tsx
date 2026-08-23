@@ -199,6 +199,7 @@ function InspectorContent({
     ? selection.tab
     : "overview";
   const traceRootKind = toTraceRootKind(selection.kind);
+  const hidesAdministrativeCode = ["upgrade_item", "structure", "level", "space", "wall_zone"].includes(selection.kind);
 
   return (
     <Inspector
@@ -212,7 +213,7 @@ function InspectorContent({
       kind={humanize(kind)}
       onClose={onClose}
       onSelectedTabChange={(tab) => onTabChange(tab)}
-      permanentCode={selection.kind === "upgrade_item" ? text(item.upgradePermanentCode) ?? text(item.permanentCode) : text(item.permanentCode) ?? text(item.code)}
+      permanentCode={hidesAdministrativeCode ? undefined : text(item.permanentCode)}
       selectedTabId={selectedTab}
       tabs={[
         {

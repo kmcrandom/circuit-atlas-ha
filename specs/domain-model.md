@@ -3,6 +3,7 @@
 Status: Approved, including the Home Assistant App storage and Cloudflare Access identity amendments
 Companion to: `specs/product-spec.md`
 Implementation verified, including smart-device metadata: 2026-08-20
+Approved amendment: automatic hidden identifiers and structured bulb specifications (`sdd/automatic-location-codes`, 2026-08-23)
 
 ## 1. Modeling approach
 
@@ -20,11 +21,11 @@ No device has a single mandatory `breaker_id`. Circuit membership is expressed a
 ### 2.1 Workspace, property, and spatial entities
 
 - `workspace`: private application owner and non-property-specific preferences
-- `property`: independent house/site dataset, name, optional address, preferences, lifecycle state
-- `structure`: house, detached garage, shed, addition, or other building
-- `level`: basement, floor, attic, exterior level, or custom
-- `space`: room, closet, hall, outdoor area, or custom nested area
-- `wall_zone`: optional named wall or sub-area within a space
+- `property`: independent house/site dataset, hidden application-generated administrative code, name, optional address, preferences, lifecycle state
+- `structure`: house, detached garage, shed, addition, or other building; stable application-generated internal code and editable display name
+- `level`: basement, floor, attic, exterior level, or custom; stable application-generated internal code and editable display name
+- `space`: room, closet, hall, outdoor area, or custom nested area; stable application-generated internal code and editable display name
+- `wall_zone`: optional named wall or sub-area within a space; stable application-generated internal code
 - `floor_plan`: background asset, scale/calibration, orientation, revision
 - `plan_placement`: asset anchor, normalized coordinates, rotation, optional wall/height
 
@@ -45,6 +46,10 @@ Sensitivity is explicit: `identifier` for addresses and IDs, `secret` for setup/
 Panels, boxes, installed devices, fixtures, light sources, appliances, junction points, and cables have asset identities where the UI needs direct selection/history.
 
 Every property-specific record is owned directly or transitively by one `property`. Cross-property foreign-key relationships are invalid. No property is created by a production migration; first-run onboarding or an explicit import creates it as data.
+
+Spatial codes for structures, levels, spaces, and wall/zones are persistence identifiers, not user-facing locator labels. Normal create operations allocate them server-side using a collision-safe mechanism within the schema's uniqueness scope. Normal update operations cannot change them, and changing a display name, parent, or sort order does not regenerate them. Ordinary view models and search results omit them; complete export/import and compatibility API responses may retain them. Import preserves a valid non-conflicting code and remaps a collision belonging to a different stable record while maintaining relationships by UUID.
+
+Property and upgrade-item permanent codes are administrative identifiers and are likewise omitted from ordinary user-facing view models while remaining stable in storage and complete exports. Permanent codes for electrical assets and topology records remain available to the user because they provide durable labels for field identification, diagrams, tracing, and disambiguation.
 
 ### 2.3 Panels, breakers, and circuits
 
@@ -75,7 +80,7 @@ Each cable end attaches to a box and optionally to a specific box port. Geometry
 - `appliance`: asset subtype for hardwired or plug-connected equipment
 - `asset_function`: independently addressable function/channel belonging to a device, fixture, or appliance
 - `lamp_holder`: fixture function/position with base type and rating details
-- `light_source`: asset subtype installed in a lamp holder, or an integrated engine associated with a fixture
+- `light_source`: asset subtype installed in a lamp holder, or an integrated engine associated with a fixture; optional actual watts, incandescent-equivalent watts, lumens, fixed/nominal kelvin, supported minimum/maximum kelvin, color capability, dimmability, and smart state
 - `plug_connection`: dated appliance-to-receptacle-function relationship for movable loads
 
 Examples of functions include a switch channel, a receptacle half, a relay channel, a fixture light load, a fan motor, a lamp holder, or a scene button.
@@ -202,6 +207,7 @@ Arrows show data relationships, not current flow or hidden cable routes.
 ### Hard database/application constraints
 
 - Permanent asset codes are unique within a property and never reused.
+- Structure, level, space, and wall/zone internal codes are generated server-side, unique within their declared database scope, stable after creation, and unavailable as ordinary user-editable fields.
 - Every property-owned relationship connects records from the same property.
 - A cable has exactly two end slots, A and B; an unknown end is an explicit unresolved endpoint rather than a missing row.
 - A conductor has exactly two end slots, A and B.
@@ -213,6 +219,7 @@ Arrows show data relationships, not current flow or hidden cable routes.
 - Archived records retain their permanent codes and historical relationships.
 - Installed-device details belong to exactly one property and one installed-product instance; replacing a product never automatically copies unit-unique identifiers or secrets to its replacement.
 - Secret detail values are excluded from search indexes, URL state, change-event summaries, analytics, logs, and general asset/list view models. They are fetched only through an authenticated property-scoped detail boundary and are masked by default in the client.
+- Light-source actual wattage, equivalent wattage, and lumens are optional non-negative observations; kelvin values are optional and positive when present. If both supported color-temperature bounds are known, the maximum is greater than or equal to the minimum. These fields belong to the installed light source at one holder position, not to the fixture as an undifferentiated total.
 
 ### Non-blocking consistency warnings
 
@@ -280,3 +287,5 @@ The following are always property data:
 - user-customized naming conventions and reusable product selections.
 
 Production startup must work with an empty database and present onboarding. Automated tests may load fictional property fixtures into isolated test storage, but application runtime code and production migrations must never depend on those fixtures.
+
+The automatic spatial-identifier and structured bulb-field amendments were implemented and verified on 2026-08-23.

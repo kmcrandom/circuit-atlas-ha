@@ -157,7 +157,7 @@ export function UpgradeReadinessBoard({
                         <div className={styles.cardHead}>
                           <button className={styles.identityButton} type="button" onClick={() => onSelectItem(item.id)}>
                             <span className={styles.itemName}>{item.displayName}</span>
-                            <span className={styles.itemMeta}>{item.locationLabel || "Location unknown"} · {item.permanentCode} · {item.upgradePermanentCode}</span>
+                            <span className={styles.itemMeta}>{item.locationLabel || "Location unknown"} · {item.permanentCode}</span>
                           </button>
                           <StatusBadge tone={state === "known" ? "positive" : state === "conflicting" ? "danger" : "warning"}>
                             {state === "known" ? "Facts ready" : state === "conflicting" ? "Conflict" : "Needs facts"}

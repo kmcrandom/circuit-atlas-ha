@@ -54,8 +54,12 @@ export type LightSourceDetails = {
   shape?: string | null;
   technology?: string | null;
   wattage?: number | null;
+  equivalentWattage?: number | null;
   lumens?: number | null;
-  colorTemperature?: string | null;
+  colorTemperatureKelvin?: number | null;
+  colorTemperatureMinKelvin?: number | null;
+  colorTemperatureMaxKelvin?: number | null;
+  colorCapability?: "fixed-white" | "tunable-white" | "full-color" | "custom" | null;
   dimmable?: boolean | null;
   manufacturer?: string | null;
   model?: string | null;

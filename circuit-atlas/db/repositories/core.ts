@@ -113,10 +113,10 @@ const idColumnByKind: Partial<Record<ResourceKind, string>> = {
 const assetSubtypeKinds = new Set<ResourceKind>(["panels", "boxes", "cables"]);
 
 const mutableFields: Record<ResourceKind, ReadonlySet<string>> = {
-  structures: new Set(["code", "name", "kind", "notes", "sortOrder", "lifecycleState"]),
-  levels: new Set(["code", "name", "elevationOrder", "notes", "lifecycleState"]),
-  spaces: new Set(["code", "name", "kind", "notes", "sortOrder", "lifecycleState"]),
-  "wall-zones": new Set(["code", "name", "orientation", "notes", "sortOrder", "lifecycleState"]),
+  structures: new Set(["name", "kind", "notes", "sortOrder", "lifecycleState"]),
+  levels: new Set(["name", "elevationOrder", "notes", "lifecycleState"]),
+  spaces: new Set(["name", "kind", "notes", "sortOrder", "lifecycleState"]),
+  "wall-zones": new Set(["name", "orientation", "notes", "sortOrder", "lifecycleState"]),
   panels: new Set(["role", "nominalVoltage", "phaseCount", "maxAmps", "systemNotes"]),
   "panel-positions": new Set(["label"]),
   breakers: new Set(["label", "ratingAmps", "kind", "hasAfci", "hasGfci", "handleTieGroup", "notes", "lifecycleState"]),
@@ -303,6 +303,40 @@ export async function nextPropertyCode(
     throw new Error("A permanent identifier could not be reserved.");
   }
   return `${normalized}-${value.toString().padStart(4, "0")}`;
+}
+
+const locationCodePrefixes = {
+  structures: "STR",
+  levels: "LVL",
+  spaces: "SPC",
+  "wall-zones": "WZN",
+} as const;
+
+export type LocationResourceKind = keyof typeof locationCodePrefixes;
+
+export async function nextLocationCode(
+  identity: RequestIdentity,
+  propertyId: string,
+  kind: LocationResourceKind,
+): Promise<string> {
+  await requireOwnedProperty(identity, propertyId);
+  const table = tableFor(kind);
+  const existing = await getDb()
+    .select({ code: columnFor(table, "code") })
+    .from(table)
+    .where(eq(table.propertyId, propertyId));
+  const unavailable = new Set(existing.map((row) => String(row.code)));
+
+  // Imported or legacy location codes may predate their sequence counter. Keep
+  // reserving until the counter reaches a value that is not already in use.
+  while (true) {
+    const candidate = await nextPropertyCode(
+      identity,
+      propertyId,
+      locationCodePrefixes[kind],
+    );
+    if (!unavailable.has(candidate)) return candidate;
+  }
 }
 
 export async function listResource(

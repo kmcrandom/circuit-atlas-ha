@@ -104,6 +104,60 @@ test("unknown cable conductor counts stay null instead of being coerced to zero"
   database.close();
 });
 
+test("light sources preserve distinct bulb ratings and validate color-temperature ranges", () => {
+  const database = migratedDatabase();
+  createTwoProperties(database);
+  database.exec(`
+    INSERT INTO assets (id, property_id, permanent_code, kind, display_name)
+      VALUES ('fixture-1', 'property-1', 'FIX-001', 'fixture', 'Fictional fixture');
+    INSERT INTO fixtures (asset_id, property_id, fixture_kind)
+      VALUES ('fixture-1', 'property-1', 'light');
+    INSERT INTO lamp_holders (id, property_id, fixture_asset_id, position_key)
+      VALUES ('holder-1', 'property-1', 'fixture-1', 'Lamp 1');
+    INSERT INTO assets (id, property_id, permanent_code, kind, display_name)
+      VALUES ('bulb-1', 'property-1', 'FIX-001/L1', 'light_source', 'Fictional bulb');
+    INSERT INTO light_sources (
+      asset_id, property_id, fixture_asset_id, lamp_holder_id, watts,
+      equivalent_watts, lumens, color_temperature_kelvin,
+      color_temperature_min_kelvin, color_temperature_max_kelvin,
+      color_capability, dimmable, smart_state
+    ) VALUES (
+      'bulb-1', 'property-1', 'fixture-1', 'holder-1', 8.5,
+      60, 800, 2700, 2200, 6500, 'tunable_white', 1, 'smart'
+    );
+  `);
+
+  const bulb = database.prepare(`
+    SELECT watts, equivalent_watts, lumens, color_temperature_kelvin,
+      color_temperature_min_kelvin, color_temperature_max_kelvin,
+      color_capability, dimmable
+    FROM light_sources WHERE asset_id = 'bulb-1'
+  `).get();
+  assert.deepEqual({ ...bulb }, {
+    watts: 8.5,
+    equivalent_watts: 60,
+    lumens: 800,
+    color_temperature_kelvin: 2700,
+    color_temperature_min_kelvin: 2200,
+    color_temperature_max_kelvin: 6500,
+    color_capability: "tunable_white",
+    dimmable: 1,
+  });
+  assert.throws(
+    () => database.exec("UPDATE light_sources SET equivalent_watts = -1 WHERE asset_id = 'bulb-1'"),
+    /CHECK constraint failed/,
+  );
+  assert.throws(
+    () => database.exec("UPDATE light_sources SET color_temperature_min_kelvin = 7000 WHERE asset_id = 'bulb-1'"),
+    /CHECK constraint failed/,
+  );
+  assert.throws(
+    () => database.exec("UPDATE light_sources SET color_capability = 'infrared' WHERE asset_id = 'bulb-1'"),
+    /CHECK constraint failed/,
+  );
+  database.close();
+});
+
 test("property codes and approved upgrade statuses are constrained", () => {
   const database = migratedDatabase();
   createTwoProperties(database);

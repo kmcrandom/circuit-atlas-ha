@@ -36,8 +36,12 @@ const lightSourceSchema = z.object({
   shape: z.string().max(80).nullable().optional(),
   technology: z.string().max(80).nullable().optional(),
   wattage: z.number().min(0).nullable().optional(),
+  equivalentWattage: z.number().min(0).nullable().optional(),
   lumens: z.number().min(0).nullable().optional(),
-  colorTemperature: z.string().max(40).nullable().optional(),
+  colorTemperatureKelvin: z.number().int().positive().nullable().optional(),
+  colorTemperatureMinKelvin: z.number().int().positive().nullable().optional(),
+  colorTemperatureMaxKelvin: z.number().int().positive().nullable().optional(),
+  colorCapability: z.enum(["fixed-white", "tunable-white", "full-color", "custom"]).nullable().optional(),
   dimmable: z.boolean().nullable().optional(),
   manufacturer: z.string().max(120).nullable().optional(),
   model: z.string().max(120).nullable().optional(),
@@ -48,7 +52,19 @@ const lightSourceSchema = z.object({
   ecosystem: z.string().max(120).nullable().optional(),
   hub: z.string().max(120).nullable().optional(),
   deviceDetails: z.array(deviceDetailSchema).max(100).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (
+    value.colorTemperatureMinKelvin != null &&
+    value.colorTemperatureMaxKelvin != null &&
+    value.colorTemperatureMaxKelvin < value.colorTemperatureMinKelvin
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["colorTemperatureMaxKelvin"],
+      message: "Maximum color temperature must be greater than or equal to the minimum.",
+    });
+  }
+});
 
 export const assetCreateSchema = z.object({
   displayName: z.string().trim().min(1).max(120),

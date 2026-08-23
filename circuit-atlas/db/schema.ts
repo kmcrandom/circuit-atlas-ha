@@ -44,6 +44,7 @@ export const assetKinds = [
   "custom",
 ] as const;
 export const smartStates = ["smart", "dumb", "unknown", "not_applicable"] as const;
+export const lightColorCapabilities = ["fixed_white", "tunable_white", "full_color", "custom"] as const;
 export const installedDeviceDetailKinds = [
   "mac_address",
   "zigbee_ieee",
@@ -865,8 +866,13 @@ export const lightSources = sqliteTable(
     bulbType: text("bulb_type"),
     baseType: text("base_type"),
     watts: real("watts"),
+    equivalentWatts: real("equivalent_watts"),
     lumens: real("lumens"),
     colorTemperatureKelvin: integer("color_temperature_kelvin"),
+    colorTemperatureMinKelvin: integer("color_temperature_min_kelvin"),
+    colorTemperatureMaxKelvin: integer("color_temperature_max_kelvin"),
+    colorCapability: text("color_capability", { enum: lightColorCapabilities }),
+    dimmable: integer("dimmable", { mode: "boolean" }),
     smartState: text("smart_state", { enum: smartStates }).notNull().default("unknown"),
     integrated: integer("integrated", { mode: "boolean" }).notNull().default(false),
   },
@@ -878,8 +884,13 @@ export const lightSources = sqliteTable(
     foreignKey({ name: "light_sources_property_holder_fk", columns: [table.propertyId, table.fixtureAssetId, table.lampHolderId], foreignColumns: [lampHolders.propertyId, lampHolders.fixtureAssetId, lampHolders.id] }).onDelete("restrict"),
     check("light_sources_smart_state_ck", enumCheck(table.smartState, smartStates)),
     check("light_sources_watts_ck", sql`${table.watts} is null or ${table.watts} >= 0`),
+    check("light_sources_equivalent_watts_ck", sql`${table.equivalentWatts} is null or ${table.equivalentWatts} >= 0`),
     check("light_sources_lumens_ck", sql`${table.lumens} is null or ${table.lumens} >= 0`),
     check("light_sources_kelvin_ck", sql`${table.colorTemperatureKelvin} is null or ${table.colorTemperatureKelvin} > 0`),
+    check("light_sources_min_kelvin_ck", sql`${table.colorTemperatureMinKelvin} is null or ${table.colorTemperatureMinKelvin} > 0`),
+    check("light_sources_max_kelvin_ck", sql`${table.colorTemperatureMaxKelvin} is null or ${table.colorTemperatureMaxKelvin} > 0`),
+    check("light_sources_kelvin_range_ck", sql`${table.colorTemperatureMinKelvin} is null or ${table.colorTemperatureMaxKelvin} is null or ${table.colorTemperatureMaxKelvin} >= ${table.colorTemperatureMinKelvin}`),
+    check("light_sources_color_capability_ck", sql`${table.colorCapability} is null or ${enumCheck(table.colorCapability, lightColorCapabilities)}`),
   ],
 );
 

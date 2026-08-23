@@ -4,6 +4,7 @@ Status: Approved, including the Home Assistant App and Cloudflare Access deploym
 Branch: `sdd/home-assistant-app`
 Date: 2026-08-13
 Implementation verified, including smart-device metadata: 2026-08-20
+Approved amendment: automatic hidden identifiers and structured bulb specifications (`sdd/automatic-location-codes`, 2026-08-23)
 
 ## 1. Purpose
 
@@ -42,7 +43,7 @@ The application records cable endpoints and individual-conductor connectivity. I
 
 - First-run onboarding creates a property record rather than relying on seeded house details.
 - A property selector lets the user create, open, rename, export, import, or archive independent houses.
-- Address, name, structures, floors, room/area vocabulary, wall/zone codes, panel layouts, breaker labels, device inventory, product choices, diagrams, and floor plans are user data.
+- Address, name, structures, floors, room/area vocabulary, optional wall/zone labels, panel layouts, breaker labels, device inventory, product choices, diagrams, and floor plans are user data. Application-generated spatial identifiers remain part of the property dataset but are not user-authored naming fields.
 - Source code and production database migrations contain no real or assumed house-specific values.
 - Generic electrical-domain presets may ship with the application, but they are reusable, editable templates and never contain property names or topology.
 - Development/test fixtures use clearly fictional data and are never inserted into a production property.
@@ -189,6 +190,12 @@ Every record has:
 - an optional structured locator label based on floor, room, wall/zone, and sequence;
 - aliases retained after a rename so old labels remain searchable.
 
+Structures, levels, spaces, and wall/zones also have stable application-generated internal codes used for storage, API compatibility, and export/import matching. The ordinary create and edit experience asks only for the location's name and relevant descriptive fields; it does not display, request, or allow editing these internal codes. Codes are generated on the server, are collision-safe within their database uniqueness scope, and do not derive identity from a mutable display name. Renaming, reordering, or moving a location therefore does not change its internal code.
+
+Existing or imported spatial codes are preserved when they are valid and non-conflicting. If an imported record has a code collision with a different record in the destination, the import assigns a new internal code and preserves relationships by stable record identity. Complete exports retain spatial codes for lossless round trips, while ordinary search results, selectors, cards, and forms identify locations by their human-readable hierarchy rather than exposing those codes.
+
+Generated administrative codes for a property (`PROP-…`) and an upgrade-plan item (`UPG-…`) are also hidden from ordinary cards, forms, selectors, and inspectors because the property name and upgrade target/goal are the meaningful user references. They remain stable in storage and complete exports. Optional user-visible locator labels and permanent codes for electrical assets, panels, breakers, circuits, cables, conductors, and control groups remain visible: those identifiers support physical labels, diagrams, field tracing, and disambiguation. All permanent and internal codes are application-generated rather than user-entered.
+
 Default permanent ID prefixes are:
 
 | Record | Example |
@@ -310,10 +317,15 @@ Light-source details include:
 - smart or dumb;
 - base/socket type;
 - shape and technology;
-- wattage, lumens, color temperature/color capability, and dimmability;
+- actual electrical wattage and separately labeled incandescent-equivalent wattage;
+- light output in lumens;
+- a fixed/nominal color temperature in kelvin or a supported minimum/maximum color-temperature range;
+- color capability (for example fixed white, tunable white, or full color) and dimmability;
 - manufacturer, model, protocol/ecosystem, and notes.
 
-A fixture may mix different light-source types. An integrated LED fixture can have zero replaceable bulbs.
+These specifications are optional for both smart and conventional bulbs. Numeric fields retain their units and accept decimal values where appropriate. A supported color-temperature range may have one or both observed bounds; when both are present, the maximum cannot be lower than the minimum. The interface labels actual and equivalent wattage unambiguously and never derives one from the other.
+
+A fixture may mix different light-source types and specifications. Each installed bulb remains associated with its individual holder position so replacing one bulb does not overwrite its neighbors. An integrated LED fixture can have zero replaceable bulbs.
 
 ## 10. Uncertainty, evidence, and conflicts
 
@@ -361,6 +373,7 @@ Hard errors include:
 - a splice or terminal placed outside its containing box;
 - a branch represented in the middle of a cable rather than at a splice/terminal;
 - duplicate permanent IDs within a property;
+- duplicate generated spatial codes within the applicable property/parent scope;
 - any relationship that crosses property boundaries.
 
 Warnings that do not block saving include:
@@ -434,6 +447,12 @@ The application does not:
 18. The interface is usable for lookup on a phone and for full diagram editing on a desktop/tablet.
 19. A second unrelated property can be created or imported and fully documented with the same application build; no labels, rooms, panels, topology, or floor-plan details from another property appear unless entered as data.
 20. An installed smart device can retain manufacturer/model information, multiple unit-specific identifiers, vendor commissioning details, and custom labeled fields. Secret values are masked and omitted from search and summary responses, while an authenticated complete export/import round trip preserves them.
+21. A user can create a structure, level, space, or wall/zone without entering a code; the server assigns a stable, non-conflicting internal code.
+22. Ordinary forms, selectors, cards, and search results do not expose structure, level, space, or wall/zone codes, and a rename, reorder, or move does not regenerate them. Ordinary property and upgrade-plan views likewise omit their generated administrative codes.
+23. Complete export/import preserves valid spatial codes and relationships; a conflicting imported spatial code is safely remapped without requiring user intervention.
+24. Each bulb or integrated light engine can independently record actual watts, equivalent watts, lumens, fixed/nominal color temperature or supported temperature bounds, color capability, and smart/dumb state; complete export/import preserves those values.
+
+Implementation verified for acceptance criteria 21–24 on 2026-08-23.
 
 ## 17. Representative verification scenarios
 
@@ -453,6 +472,7 @@ The implementation must include automated or fixture-based tests for:
 - an abandoned conductor and an unknown cable endpoint;
 - a subpanel feeder and a multi-pole breaker;
 - a fixture with multiple bulbs and an integrated LED fixture;
+- a mixed-bulb fixture whose holders have different actual/equivalent wattages, lumen output, and fixed versus tunable color-temperature specifications;
 - conflict between asserted and graph-derived breaker membership.
 - a Hue light with manufacturer/model, MAC address, setup code, Matter ID, bridge association, and firmware;
 - an Inovelli switch with manufacturer/model, Zigbee IEEE address, firmware, hardware revision, hub association, and an arbitrary custom field;
