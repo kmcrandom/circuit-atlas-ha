@@ -1,0 +1,27 @@
+---
+name: Circuit Atlas
+version: "0.1.0"
+slug: circuit_atlas
+description: Map a home's circuits, devices, fixtures, cables, and conductors
+url: https://github.com/kmcrandom/circuit-atlas-ha
+image: ghcr.io/kmcrandom/circuit-atlas-ha
+arch:
+  - aarch64
+init: false
+ingress: true
+panel_title: Circuit Atlas
+panel_icon: mdi:flash
+stage: experimental
+backup: cold
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Web app endpoint for a Cloudflare Tunnel protected by Access
+options:
+  cloudflare_access:
+    team_domain: ""
+    audience: ""
+schema:
+  cloudflare_access:
+    team_domain: str?
+    audience: str?

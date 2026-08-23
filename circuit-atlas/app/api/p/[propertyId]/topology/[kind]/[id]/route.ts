@@ -1,0 +1,10 @@
+import { z } from "zod";
+import { getResource, resourceTables, topologyEntityCircuitLookup, updateResource, type ResourceKind } from "@/db/repositories";
+import { InvalidRequestError } from "@/lib/http/responses";
+import { parsedJson, readRoute, requestIdSchema, revisionSchema, routeParams, writeRoute } from "@/lib/http/route-utils";
+type Params = { params: Promise<{ propertyId: string; kind: string; id: string }> };
+const allowed = new Set<ResourceKind>(["boxes", "box-ports", "asset-mounts", "cables", "cable-ends", "conductors", "nodes", "terminals", "splices", "conductor-ends", "connections", "circuit-sources", "control-groups", "control-members", "control-links"]);
+const schema = z.object({ requestId: requestIdSchema, revision: revisionSchema.optional(), values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])) }).strict();
+function resourceKind(value: string): ResourceKind { if (!(value in resourceTables) || !allowed.has(value as ResourceKind)) throw new InvalidRequestError("Unknown topology resource kind."); return value as ResourceKind; }
+export async function GET(_request: Request, context: Params) { const { propertyId, kind, id } = await routeParams(context.params); return readRoute(async (identity) => { const resource = resourceKind(kind); const item = await getResource(identity, propertyId, resource, id); const rootKind = resource === "cables" ? "cable" : resource === "conductors" ? "conductor" : resource === "nodes" ? "node" : resource === "boxes" ? "box" : null; return { item, ...(rootKind ? { power: await topologyEntityCircuitLookup(identity, propertyId, { kind: rootKind, id }) } : {}) }; }); }
+export async function PATCH(request: Request, context: Params) { const { propertyId, kind, id } = await routeParams(context.params); return writeRoute(request, async (identity) => { const input = await parsedJson(request, schema); return { item: await updateResource({ identity, propertyId, requestId: input.requestId }, resourceKind(kind), id, input.revision, input.values) }; }); }

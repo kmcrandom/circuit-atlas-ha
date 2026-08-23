@@ -1,0 +1,7 @@
+import { z } from "zod";
+import { createBreakerAggregate, listResource } from "@/db/repositories";
+import { parsedJson, readRoute, routeParams, writeRoute } from "@/lib/http/route-utils";
+type Params = { params: Promise<{ propertyId: string }> };
+const schema = z.object({ panelId: z.string().uuid(), label: z.string().trim().min(1).max(120), ratingAmps: z.number().int().positive().nullable().optional(), poleCount: z.number().int().min(1).max(8), kind: z.enum(["standard", "gfci", "afci", "dual_function", "main", "tandem", "quad", "other", "unknown"]).default("unknown"), hasAfci: z.boolean().optional(), hasGfci: z.boolean().optional(), notes: z.string().max(4000).nullable().optional(), poles: z.array(z.object({ panelPositionId: z.string().uuid(), poleIndex: z.number().int().positive(), phaseLeg: z.enum(["L1", "L2", "L3", "N", "unknown", "custom"]).optional() }).strict()).min(1) }).strict();
+export async function GET(_request: Request, context: Params) { const { propertyId } = await routeParams(context.params); return readRoute(async (identity) => ({ items: await listResource(identity, propertyId, "breakers") })); }
+export async function POST(request: Request, context: Params) { const { propertyId } = await routeParams(context.params); return writeRoute(request, async (identity) => ({ item: await createBreakerAggregate(identity, propertyId, await parsedJson(request, schema)) }), 201); }

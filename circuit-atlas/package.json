@@ -1,0 +1,65 @@
+{
+  "name": "circuit-atlas",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "dev": "CIRCUIT_ATLAS_PORT=3000 CIRCUIT_ATLAS_BACKEND_PORT=3001 node runtime/start.mjs --development",
+    "build": "next build && node runtime/prepare-standalone.mjs",
+    "start": "node runtime/start.mjs",
+    "test": "npm run test:unit && npm run test:schema && npm run test:gateway && npm run build && node --test tests/rendered-html.test.mjs",
+    "test:unit": "vitest run",
+    "test:schema": "node --test tests/schema/migration.test.mjs",
+    "test:gateway": "node --test tests/gateway.test.mjs",
+    "test:e2e": "playwright test",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.7.1",
+    "@xyflow/react": "^12.11.3",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "0.45.2",
+    "elkjs": "^0.12.0",
+    "fflate": "^0.8.3",
+    "jose": "^6.2.10",
+    "lucide-react": "^1.31.0",
+    "next": "16.2.11",
+    "pdfjs-dist": "^6.2.108",
+    "react": "19.2.6",
+    "react-aria-components": "^1.20.0",
+    "react-dom": "19.2.6",
+    "react-hook-form": "^7.85.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "jest-axe": "^11.0.0",
+    "jsdom": "^30.0.1",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.23"
+    },
+    "sharp": "^0.35.0",
+    "fast-uri": "^3.1.5"
+  },
+  "type": "module"
+}

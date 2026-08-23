@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  home-assistant-metadata:
+    name: Home Assistant metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Run Home Assistant App linter
+        uses: frenck/action-app-linter@v2.21.1
+        with:
+          path: ./circuit-atlas
+
+  application:
+    name: Application checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: circuit-atlas/package-lock.json
+
+      - name: Validate release metadata
+        run: node scripts/validate-release.mjs
+
+      - name: Reject private runtime artifacts
+        run: |
+          if git ls-files | grep -E '\.(sqlite|sqlite-(shm|wal)|db)$|(^|/)(uploads|exports|\.data)/'; then
+            echo "Private runtime artifacts must not be committed."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        working-directory: circuit-atlas
+        run: npm ci
+
+      - name: Lint
+        working-directory: circuit-atlas
+        run: npm run lint
+
+      - name: Type-check
+        working-directory: circuit-atlas
+        run: npx tsc --noEmit
+
+      - name: Run unit tests
+        working-directory: circuit-atlas
+        run: npm run test:unit
+
+      - name: Verify SQLite migrations
+        working-directory: circuit-atlas
+        run: npm run test:schema
+
+      - name: Verify authentication gateway
+        working-directory: circuit-atlas
+        run: npm run test:gateway
+
+      - name: Build standalone app
+        working-directory: circuit-atlas
+        run: npm run build
+
+      - name: Verify production rendering and persistence
+        working-directory: circuit-atlas
+        run: node --test tests/rendered-html.test.mjs
+
+      - name: Install browser runtime
+        working-directory: circuit-atlas
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify desktop, mobile, and ingress browsers
+        working-directory: circuit-atlas
+        run: npm run test:e2e
+
+      - name: Audit production dependencies
+        working-directory: circuit-atlas
+        run: npm audit --omit=dev --audit-level=high
+
+  home-assistant-image:
+    name: Home Assistant Yellow image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Read app version
+        id: app
+        run: |
+          version="$(awk -F'"' '/^version:/ {print $2}' circuit-atlas/config.yaml)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build loadable aarch64 image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: ./circuit-atlas
+          platforms: linux/arm64
+          load: true
+          push: false
+          build-args: |
+            BUILD_ARCH=aarch64
+            BUILD_VERSION=${{ steps.app.outputs.version }}
+          tags: circuit-atlas-ha:ci
+
+      - name: Smoke-test container
+        run: bash scripts/smoke-container.sh circuit-atlas-ha:ci
