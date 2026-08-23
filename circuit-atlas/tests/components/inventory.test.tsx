@@ -8,6 +8,7 @@ import {
   EMPTY_ASSET_DRAFT,
   filterInventory,
   type InventoryAsset,
+  type InventoryAssetDraft,
   type InventoryFilterState,
 } from "@/features/inventory";
 
@@ -77,7 +78,7 @@ describe("inventory components", () => {
   it("captures actual and equivalent bulb ratings plus a tunable temperature range", () => {
     const onSave = vi.fn();
     function Harness() {
-      const [draft, setDraft] = useState({
+      const [draft, setDraft] = useState<InventoryAssetDraft>({
         ...EMPTY_ASSET_DRAFT,
         kind: "fixture" as const,
         displayName: "Fictional ceiling fixture",

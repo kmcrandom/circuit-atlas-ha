@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 - 2026-08-23
+
+- Generate internal structure, level, space, and wall/zone identifiers automatically while keeping administrative codes out of ordinary workflows.
+- Add wall/zone creation and preserve useful electrical identifiers for physical labeling and traceability.
+- Record structured details for each bulb or integrated light engine, including wattage, equivalent wattage, lumens, color-temperature values or ranges, color capability, and dimmability.
+- Preserve imported location relationships while safely remapping conflicting internal identifiers.
+
 ## 0.1.0 - 2026-08-22
 
 - Initial Home Assistant App package for Home Assistant Yellow (`aarch64`).
