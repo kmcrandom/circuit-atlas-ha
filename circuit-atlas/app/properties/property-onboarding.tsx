@@ -146,7 +146,6 @@ export function PropertyOnboarding() {
           {state.properties.map((property) => (
             <AppLink className="property-card" href={`/p/${property.id}/map`} key={property.id}>
               <span className="property-card-icon"><Building2 size={21} /></span>
-              <span className="property-code">{property.permanentCode}</span>
               <h2>{property.name}</h2>
               <p>{property.address ?? "No address recorded"}</p>
               <dl>

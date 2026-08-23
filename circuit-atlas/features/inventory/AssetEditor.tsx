@@ -90,6 +90,11 @@ export function AssetEditor({
     );
   const showLightSources = draft.kind === "fixture";
   const showSmartProduct = ["switch", "receptacle", "fixture", "light-source", "appliance"].includes(draft.kind);
+  const hasInvalidKelvinRange = draft.lightSources.some((source) =>
+    source.colorTemperatureMinKelvin != null &&
+    source.colorTemperatureMaxKelvin != null &&
+    source.colorTemperatureMaxKelvin < source.colorTemperatureMinKelvin,
+  );
 
   return (
     <form
@@ -97,6 +102,7 @@ export function AssetEditor({
       aria-label={draft.id ? `Edit ${draft.displayName}` : "Add inventory record"}
       onSubmit={(event) => {
         event.preventDefault();
+        if (hasInvalidKelvinRange) return;
         onSave(draft);
       }}
     >
@@ -400,17 +406,57 @@ export function AssetEditor({
                     <FormField label="Base / socket">
                       <input className={shared.input} value={source.baseType ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { baseType: event.target.value || null })} />
                     </FormField>
-                    <FormField label="Wattage">
+                    <FormField label="Bulb shape">
+                      <input className={shared.input} value={source.shape ?? ""} placeholder="For example, A19 or BR30" onChange={(event) => updateLightSource(source.id, { shape: event.target.value || null })} />
+                    </FormField>
+                    <FormField label="Technology">
+                      <input className={shared.input} value={source.technology ?? ""} placeholder="For example, LED or incandescent" onChange={(event) => updateLightSource(source.id, { technology: event.target.value || null })} />
+                    </FormField>
+                    <FormField label="Actual wattage (W)" description="Rated electrical power consumption.">
                       <input className={shared.input} type="number" min="0" step="0.1" value={source.wattage ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { wattage: event.target.value ? Number(event.target.value) : null })} />
                     </FormField>
-                    <FormField label="Lumens">
+                    <FormField label="Wattage equivalent (W)" description="Advertised incandescent-equivalent output, kept separate from actual power.">
+                      <input className={shared.input} type="number" min="0" step="0.1" value={source.equivalentWattage ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { equivalentWattage: event.target.value ? Number(event.target.value) : null })} />
+                    </FormField>
+                    <FormField label="Light output (lumens)">
                       <input className={shared.input} type="number" min="0" value={source.lumens ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { lumens: event.target.value ? Number(event.target.value) : null })} />
                     </FormField>
-                    <FormField label="Color / temperature">
-                      <input className={shared.input} value={source.colorTemperature ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { colorTemperature: event.target.value || null })} />
+                    <FormField label="Fixed / nominal temperature (K)" description="Use for a fixed-white bulb or a documented default.">
+                      <input className={shared.input} type="number" min="1" step="1" value={source.colorTemperatureKelvin ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { colorTemperatureKelvin: event.target.value ? Number(event.target.value) : null })} />
+                    </FormField>
+                    <FormField label="Minimum supported temperature (K)">
+                      <input className={shared.input} type="number" min="1" step="1" value={source.colorTemperatureMinKelvin ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { colorTemperatureMinKelvin: event.target.value ? Number(event.target.value) : null })} />
+                    </FormField>
+                    <FormField
+                      label="Maximum supported temperature (K)"
+                      error={source.colorTemperatureMinKelvin != null && source.colorTemperatureMaxKelvin != null && source.colorTemperatureMaxKelvin < source.colorTemperatureMinKelvin ? "Maximum must be at least the minimum." : undefined}
+                    >
+                      <input className={shared.input} type="number" min="1" step="1" value={source.colorTemperatureMaxKelvin ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { colorTemperatureMaxKelvin: event.target.value ? Number(event.target.value) : null })} />
+                    </FormField>
+                    <FormField label="Color capability">
+                      <select className={shared.select} value={source.colorCapability ?? ""} onChange={(event) => updateLightSource(source.id, { colorCapability: event.target.value ? event.target.value as NonNullable<LightSourceDetails["colorCapability"]> : null })}>
+                        <option value="">Unknown / not recorded</option>
+                        <option value="fixed-white">Fixed white</option>
+                        <option value="tunable-white">Tunable white</option>
+                        <option value="full-color">Full color</option>
+                        <option value="custom">Custom / other</option>
+                      </select>
+                    </FormField>
+                    <FormField label="Dimmable">
+                      <select className={shared.select} value={source.dimmable == null ? "unknown" : source.dimmable ? "yes" : "no"} onChange={(event) => updateLightSource(source.id, { dimmable: event.target.value === "unknown" ? null : event.target.value === "yes" })}>
+                        <option value="unknown">Unknown / not recorded</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
                     </FormField>
                     <FormField label="Protocol">
                       <input className={shared.input} value={source.protocol ?? ""} placeholder="Not applicable or unknown" onChange={(event) => updateLightSource(source.id, { protocol: event.target.value || null })} />
+                    </FormField>
+                    <FormField label="Ecosystem">
+                      <input className={shared.input} value={source.ecosystem ?? ""} placeholder="Not applicable or unknown" onChange={(event) => updateLightSource(source.id, { ecosystem: event.target.value || null })} />
+                    </FormField>
+                    <FormField label="Hub / bridge">
+                      <input className={shared.input} value={source.hub ?? ""} placeholder="Not applicable or unknown" onChange={(event) => updateLightSource(source.id, { hub: event.target.value || null })} />
                     </FormField>
                     <FormField label="Manufacturer">
                       <input className={shared.input} value={source.manufacturer ?? ""} placeholder="Unknown" onChange={(event) => updateLightSource(source.id, { manufacturer: event.target.value || null })} />
@@ -469,7 +515,7 @@ export function AssetEditor({
           <button className={`${shared.button} ${shared.buttonSecondary}`} type="button" onClick={onCancel} disabled={isSaving}>
             <X size={15} aria-hidden="true" /> Cancel
           </button>
-          <button className={`${shared.button} ${shared.buttonPrimary}`} type="submit" disabled={isSaving || !draft.displayName.trim()}>
+          <button className={`${shared.button} ${shared.buttonPrimary}`} type="submit" disabled={isSaving || !draft.displayName.trim() || hasInvalidKelvinRange}>
             <Save size={15} aria-hidden="true" /> {isSaving ? "Saving…" : "Save record"}
           </button>
         </div>

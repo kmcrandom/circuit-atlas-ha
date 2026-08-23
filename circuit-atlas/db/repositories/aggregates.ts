@@ -156,8 +156,12 @@ export type AssetDraft = {
     shape?: string | null;
     technology?: string | null;
     wattage?: number | null;
+    equivalentWattage?: number | null;
     lumens?: number | null;
-    colorTemperature?: string | null;
+    colorTemperatureKelvin?: number | null;
+    colorTemperatureMinKelvin?: number | null;
+    colorTemperatureMaxKelvin?: number | null;
+    colorCapability?: "fixed-white" | "tunable-white" | "full-color" | "custom" | null;
     dimmable?: boolean | null;
     manufacturer?: string | null;
     model?: string | null;
@@ -379,9 +383,9 @@ export async function createAssetAggregate(identity: RequestIdentity, propertyId
       statements.push(
         db.insert(s.lampHolders).values({ id: holderId, propertyId, fixtureAssetId: assetId, positionKey: source.holderLabel || `L${index + 1}`, baseType: source.baseType, lampShape: source.shape }),
         db.insert(s.assets).values({ id: sourceAssetId, propertyId, permanentCode: sourceCode, kind: "light_source", displayName: source.holderLabel || `${input.displayName} light ${index + 1}` }),
-        db.insert(s.lightSources).values({ assetId: sourceAssetId, propertyId, fixtureAssetId: assetId, lampHolderId: holderId, technology: source.technology, bulbType: source.shape, baseType: source.baseType, watts: source.wattage, lumens: source.lumens, colorTemperatureKelvin: source.colorTemperature ? Number.parseInt(source.colorTemperature, 10) || null : null, smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number], integrated: source.sourceType === "integrated" }),
+        db.insert(s.lightSources).values({ assetId: sourceAssetId, propertyId, fixtureAssetId: assetId, lampHolderId: holderId, technology: source.technology, bulbType: source.shape, baseType: source.baseType, watts: source.wattage, equivalentWatts: source.equivalentWattage, lumens: source.lumens, colorTemperatureKelvin: source.colorTemperatureKelvin, colorTemperatureMinKelvin: source.colorTemperatureMinKelvin, colorTemperatureMaxKelvin: source.colorTemperatureMaxKelvin, colorCapability: (source.colorCapability ? source.colorCapability.replaceAll("-", "_") : source.colorCapability) as (typeof s.lightColorCapabilities)[number] | null | undefined, dimmable: source.dimmable, smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number], integrated: source.sourceType === "integrated" }),
       );
-      if (source.manufacturer || source.model || source.serialNumber || source.hardwareRevision || source.firmware || source.protocol || source.ecosystem || source.hub || source.deviceDetails?.length || source.dimmable != null) {
+      if (source.manufacturer || source.model || source.serialNumber || source.hardwareRevision || source.firmware || source.protocol || source.ecosystem || source.hub || source.deviceDetails?.length) {
         const sourceProductId = crypto.randomUUID();
         statements.push(db.insert(s.installedProducts).values({
           id: sourceProductId,
@@ -393,7 +397,7 @@ export async function createAssetAggregate(identity: RequestIdentity, propertyId
           hardwareRevision: source.hardwareRevision,
           firmwareVersion: source.firmware,
           smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number],
-          capabilitiesJson: JSON.stringify({ protocol: source.protocol, ecosystem: source.ecosystem, hub: source.hub, dimmable: source.dimmable }),
+          capabilitiesJson: JSON.stringify({ protocol: source.protocol, ecosystem: source.ecosystem, hub: source.hub }),
         }));
         if (source.deviceDetails?.length) {
           statements.push(db.insert(s.installedDeviceDetails).values(
@@ -501,12 +505,12 @@ export async function updateAssetAggregate(
       if (!existingSource) {
         runStatementsAtomically([
           db.insert(s.assets).values({ id: sourceAssetId, propertyId, permanentCode: `${existing.permanentCode}/L${index + 1}`, kind: "light_source", displayName: source.holderLabel || `${existing.displayName} light ${index + 1}` }),
-          db.insert(s.lightSources).values({ assetId: sourceAssetId, propertyId, fixtureAssetId: assetId, lampHolderId: holderId, technology: source.technology, bulbType: source.shape, baseType: source.baseType, watts: source.wattage, lumens: source.lumens, colorTemperatureKelvin: source.colorTemperature ? Number.parseInt(source.colorTemperature, 10) || null : null, smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number], integrated: source.sourceType === "integrated" }),
+          db.insert(s.lightSources).values({ assetId: sourceAssetId, propertyId, fixtureAssetId: assetId, lampHolderId: holderId, technology: source.technology, bulbType: source.shape, baseType: source.baseType, watts: source.wattage, equivalentWatts: source.equivalentWattage, lumens: source.lumens, colorTemperatureKelvin: source.colorTemperatureKelvin, colorTemperatureMinKelvin: source.colorTemperatureMinKelvin, colorTemperatureMaxKelvin: source.colorTemperatureMaxKelvin, colorCapability: (source.colorCapability ? source.colorCapability.replaceAll("-", "_") : source.colorCapability) as (typeof s.lightColorCapabilities)[number] | null | undefined, dimmable: source.dimmable, smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number], integrated: source.sourceType === "integrated" }),
         ]);
       } else {
-        await db.update(s.lightSources).set({ lampHolderId: holderId, technology: source.technology, bulbType: source.shape, baseType: source.baseType, watts: source.wattage, lumens: source.lumens, colorTemperatureKelvin: source.colorTemperature ? Number.parseInt(source.colorTemperature, 10) || null : null, smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number], integrated: source.sourceType === "integrated" }).where(and(eq(s.lightSources.propertyId, propertyId), eq(s.lightSources.assetId, sourceAssetId)));
+        await db.update(s.lightSources).set({ lampHolderId: holderId, technology: source.technology, bulbType: source.shape, baseType: source.baseType, watts: source.wattage, equivalentWatts: source.equivalentWattage, lumens: source.lumens, colorTemperatureKelvin: source.colorTemperatureKelvin, colorTemperatureMinKelvin: source.colorTemperatureMinKelvin, colorTemperatureMaxKelvin: source.colorTemperatureMaxKelvin, colorCapability: (source.colorCapability ? source.colorCapability.replaceAll("-", "_") : source.colorCapability) as (typeof s.lightColorCapabilities)[number] | null | undefined, dimmable: source.dimmable, smartState: source.smartState.replaceAll("-", "_") as (typeof s.smartStates)[number], integrated: source.sourceType === "integrated" }).where(and(eq(s.lightSources.propertyId, propertyId), eq(s.lightSources.assetId, sourceAssetId)));
       }
-      if (source.manufacturer || source.model || source.serialNumber || source.hardwareRevision || source.firmware || source.protocol || source.ecosystem || source.hub || source.deviceDetails !== undefined || source.dimmable != null) {
+      if (source.manufacturer || source.model || source.serialNumber || source.hardwareRevision || source.firmware || source.protocol || source.ecosystem || source.hub || source.deviceDetails !== undefined) {
         await upsertInstalledProduct(
           db,
           propertyId,
@@ -523,7 +527,6 @@ export async function updateAssetAggregate(
             deviceDetails: source.deviceDetails,
           },
           source.smartState,
-          { dimmable: source.dimmable },
         );
       }
     }

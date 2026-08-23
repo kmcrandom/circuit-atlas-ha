@@ -10,6 +10,7 @@ import type {
 import type {
   InventoryAsset,
   InventoryAssetKind,
+  LightSourceDetails,
   LocationOption,
   SmartState,
 } from "@/features/inventory";
@@ -207,9 +208,15 @@ export async function inventoryViewModels(
           shape: row.bulbType,
           technology: row.technology,
           wattage: row.watts,
+          equivalentWattage: row.equivalentWatts,
           lumens: row.lumens,
-          colorTemperature: row.colorTemperatureKelvin ? `${row.colorTemperatureKelvin} K` : null,
-          dimmable: typeof sourceCapabilities.dimmable === "boolean" ? sourceCapabilities.dimmable : null,
+          colorTemperatureKelvin: row.colorTemperatureKelvin,
+          colorTemperatureMinKelvin: row.colorTemperatureMinKelvin,
+          colorTemperatureMaxKelvin: row.colorTemperatureMaxKelvin,
+          colorCapability: row.colorCapability
+            ? row.colorCapability.replaceAll("_", "-") as NonNullable<LightSourceDetails["colorCapability"]>
+            : null,
+          dimmable: row.dimmable ?? (typeof sourceCapabilities.dimmable === "boolean" ? sourceCapabilities.dimmable : null),
           manufacturer: sourceProduct?.manufacturer,
           model: sourceProduct?.model,
           serialNumber: sourceProduct?.serialNumber,
@@ -467,7 +474,6 @@ export async function searchProperty(identity: RequestIdentity, propertyId: stri
       ne(dbs.spaces.lifecycleState, "archived"),
       or(
         sql`${dbs.spaces.name} like ${needle}`,
-        sql`${dbs.spaces.code} like ${needle}`,
         sql`coalesce(${dbs.spaces.notes}, '') like ${needle}`,
       ),
     )).limit(perKindLimit),
@@ -532,7 +538,7 @@ export async function searchProperty(identity: RequestIdentity, propertyId: stri
     ...assetRows.map((row) => ({ id: row.id, label: row.displayName, kind: row.kind, permanentCode: row.permanentCode, description: row.notes, href: `/p/${propertyId}/inventory?selectedKind=${row.kind}&selectedId=${row.id}` })),
     ...circuitRows.map((row) => ({ id: row.id, label: row.name, kind: "circuit", permanentCode: row.permanentCode, description: row.purpose, href: `/p/${propertyId}/circuits?selectedKind=circuit&selectedId=${row.id}` })),
     ...breakerRows.map((row) => ({ id: row.id, label: row.label, kind: "breaker", permanentCode: row.permanentCode, description: row.ratingAmps ? `${row.ratingAmps} A · ${row.poleCount} pole${row.poleCount === 1 ? "" : "s"}` : `${row.poleCount} pole${row.poleCount === 1 ? "" : "s"}`, href: `/p/${propertyId}/circuits?selectedKind=breaker&selectedId=${row.id}` })),
-    ...spaceRows.map((row) => ({ id: row.id, label: row.name, kind: row.kind, permanentCode: row.code, description: row.notes, href: `/p/${propertyId}/settings#locations` })),
+    ...spaceRows.map((row) => ({ id: row.id, label: row.name, kind: row.kind, description: row.notes, href: `/p/${propertyId}/settings#locations` })),
     ...productRows.map((row) => ({ id: row.assetId, label: row.assetName, kind: row.assetKind, permanentCode: row.permanentCode, description: [row.manufacturer, row.model].filter(Boolean).join(" "), href: `/p/${propertyId}/inventory?selectedKind=${row.assetKind}&selectedId=${row.assetId}` })),
     ...detailRows.map((row) => ({ id: row.assetId, label: row.assetName, kind: row.assetKind, permanentCode: row.permanentCode, description: `Matches ${row.detailLabel}`, href: `/p/${propertyId}/inventory?selectedKind=${row.assetKind}&selectedId=${row.assetId}` })),
   ];

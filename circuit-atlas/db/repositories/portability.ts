@@ -28,10 +28,96 @@ import {
   type UnsealedPropertyManifestV1,
 } from "@/lib/import-export";
 import { ConflictError, InvalidRequestError } from "@/lib/http/responses";
+import { nextLocationCode, type LocationResourceKind } from "./core";
 import { requireOwnedProperty } from "./workspaces";
 
 type SqlValue = string | number | null;
 type SqlRow = Record<string, SqlValue>;
+
+type SpatialImportKind = "structures" | "levels" | "spaces" | "wall_zones";
+
+const SPATIAL_IMPORT_KINDS: Readonly<Record<SpatialImportKind, {
+  resourceKind: LocationResourceKind;
+  tableName: string;
+  scopeColumn: string | null;
+}>> = {
+  structures: { resourceKind: "structures", tableName: "structures", scopeColumn: null },
+  levels: { resourceKind: "levels", tableName: "levels", scopeColumn: "structure_id" },
+  spaces: { resourceKind: "spaces", tableName: "spaces", scopeColumn: "level_id" },
+  wall_zones: { resourceKind: "wall-zones", tableName: "wall_zones", scopeColumn: "space_id" },
+};
+
+type SpatialImportState = {
+  allCodes: Set<string>;
+  codeById: Map<string, string>;
+  codesByScope: Map<string, Set<string>>;
+};
+
+function spatialScopeKey(kind: SpatialImportKind, row: SqlRow): string {
+  const scopeColumn = SPATIAL_IMPORT_KINDS[kind].scopeColumn;
+  return scopeColumn ? String(row[scopeColumn] ?? "") : "property";
+}
+
+async function spatialImportStates(propertyId: string): Promise<Map<SpatialImportKind, SpatialImportState>> {
+  const binding = getSqliteConnection();
+  const states = new Map<SpatialImportKind, SpatialImportState>();
+  for (const [kind, config] of Object.entries(SPATIAL_IMPORT_KINDS) as Array<[SpatialImportKind, (typeof SPATIAL_IMPORT_KINDS)[SpatialImportKind]]>) {
+    const columns = ["id", "code", ...(config.scopeColumn ? [config.scopeColumn] : [])];
+    const result = await binding
+      .prepare(`SELECT ${columns.map(quoteIdentifier).join(", ")} FROM ${quoteIdentifier(config.tableName)} WHERE property_id = ?`)
+      .bind(propertyId)
+      .all<SqlRow>();
+    const state: SpatialImportState = {
+      allCodes: new Set(),
+      codeById: new Map(),
+      codesByScope: new Map(),
+    };
+    for (const row of result.results ?? []) {
+      const code = String(row.code);
+      const scope = spatialScopeKey(kind, row);
+      state.allCodes.add(code);
+      state.codeById.set(String(row.id), code);
+      const scoped = state.codesByScope.get(scope) ?? new Set<string>();
+      scoped.add(code);
+      state.codesByScope.set(scope, scoped);
+    }
+    states.set(kind, state);
+  }
+  return states;
+}
+
+async function codeForSpatialImport(
+  identity: RequestIdentity,
+  propertyId: string,
+  kind: SpatialImportKind,
+  action: "create" | "update",
+  row: SqlRow,
+  state: SpatialImportState,
+): Promise<string> {
+  if (action === "update") {
+    const existing = state.codeById.get(String(row.id));
+    if (existing) return existing;
+  }
+
+  const scope = spatialScopeKey(kind, row);
+  const scoped = state.codesByScope.get(scope) ?? new Set<string>();
+  const incoming = typeof row.code === "string" && row.code.trim() ? row.code : null;
+  let code = incoming;
+  if (!code || scoped.has(code)) {
+    do {
+      code = await nextLocationCode(
+        identity,
+        propertyId,
+        SPATIAL_IMPORT_KINDS[kind].resourceKind,
+      );
+    } while (state.allCodes.has(code));
+  }
+  scoped.add(code);
+  state.codesByScope.set(scope, scoped);
+  state.allCodes.add(code);
+  state.codeById.set(String(row.id), code);
+  return code;
+}
 
 type PortableTableDefinition = {
   kind: string;
@@ -951,6 +1037,9 @@ export async function applyOwnedPropertyImport(
     const binding = getSqliteConnection();
     const statements: SqlitePreparedStatement[] = [];
     const importedProperty = propertyData(manifest);
+    const spatialStates = mode === "merge"
+      ? await spatialImportStates(propertyId)
+      : null;
     if (mode === "add") {
       statements.push(
         binding
@@ -1010,6 +1099,19 @@ export async function applyOwnedPropertyImport(
           throw new ConflictError(`Record ${record.id} cannot be imported.`);
         }
         const row = rowForImport(definition, record, propertyId);
+        const spatialKind = record.kind in SPATIAL_IMPORT_KINDS
+          ? record.kind as SpatialImportKind
+          : null;
+        if (spatialKind && spatialStates) {
+          row.code = await codeForSpatialImport(
+            identity,
+            propertyId,
+            spatialKind,
+            action,
+            row,
+            spatialStates.get(spatialKind)!,
+          );
+        }
         await assertRecordIdentity(definition, record, row);
         statements.push(
           action === "create"

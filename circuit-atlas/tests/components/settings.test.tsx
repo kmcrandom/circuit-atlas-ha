@@ -142,6 +142,11 @@ describe("property settings", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("No locations recorded")).toBeInTheDocument();
     expect(screen.getByText("No floor plans recorded")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add a wall or zone" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/structure code/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/level code/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/space code/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("PROP-TEST")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/p/property-fixture/locations",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),

@@ -191,6 +191,7 @@ type BusyAction =
   | "structure"
   | "level"
   | "space"
+  | "wall-zone"
   | "floor-plan"
   | "import-preview"
   | "import-apply"
@@ -361,7 +362,7 @@ function PropertyDetailsCard({ property }: { property: PropertyRecord }) {
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-orange-700">Property identity</p>
           <h2 className="mt-1 text-lg font-semibold text-slate-950">Name and private address</h2>
         </div>
-        <StatusBadge label={`${property.permanentCode} · permanent`} tone="neutral" />
+        <StatusBadge label="Private property" tone="neutral" />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field isRequired label="Property name">
@@ -407,21 +408,18 @@ function StructureForm({
 }: {
   busy: boolean;
   onCreate: (input: {
-    code: string;
     name: string;
     kind: string;
     notes: string | null;
   }) => Promise<boolean>;
 }) {
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [kind, setKind] = useState("building");
   const [notes, setNotes] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (await onCreate({ code: code.trim(), name: name.trim(), kind, notes: notes.trim() || null })) {
-      setCode("");
+    if (await onCreate({ name: name.trim(), kind, notes: notes.trim() || null })) {
       setName("");
       setKind("building");
       setNotes("");
@@ -437,9 +435,6 @@ function StructureForm({
       </div>
       <Field isRequired label="Structure name">
         {(props) => <input {...props} autoComplete="off" className={textInputClass} maxLength={120} onChange={(event) => setName(event.target.value)} placeholder="Name this structure" required value={name} />}
-      </Field>
-      <Field description="A stable shorthand unique within this property." isRequired label="Structure code">
-        {(props) => <input {...props} autoCapitalize="characters" autoComplete="off" className={textInputClass} maxLength={40} onChange={(event) => setCode(event.target.value)} placeholder="Enter a code" required value={code} />}
       </Field>
       <Field label="Structure type">
         {(props) => (
@@ -469,14 +464,12 @@ function LevelForm({
   busy: boolean;
   onCreate: (input: {
     structureId: string;
-    code: string;
     name: string;
     elevationOrder: number;
     notes: string | null;
   }) => Promise<boolean>;
 }) {
   const [structureId, setStructureId] = useState("");
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [elevationOrder, setElevationOrder] = useState("0");
   const [notes, setNotes] = useState("");
@@ -490,13 +483,11 @@ function LevelForm({
     if (
       await onCreate({
         structureId: selectedStructureId,
-        code: code.trim(),
         name: name.trim(),
         elevationOrder: Number.parseInt(elevationOrder, 10) || 0,
         notes: notes.trim() || null,
       })
     ) {
-      setCode("");
       setName("");
       setElevationOrder("0");
       setNotes("");
@@ -517,15 +508,12 @@ function LevelForm({
           <Field isRequired label="Structure">
             {(props) => (
               <select {...props} className={selectClass} onChange={(event) => setStructureId(event.target.value)} value={selectedStructureId}>
-                {structures.map((structure) => <option key={structure.id} value={structure.id}>{structure.name} · {structure.code}</option>)}
+                {structures.map((structure) => <option key={structure.id} value={structure.id}>{structure.name}</option>)}
               </select>
             )}
           </Field>
           <Field isRequired label="Level name">
             {(props) => <input {...props} autoComplete="off" className={textInputClass} maxLength={120} onChange={(event) => setName(event.target.value)} placeholder="Name this level" required value={name} />}
-          </Field>
-          <Field description="Unique within the selected structure." isRequired label="Level code">
-            {(props) => <input {...props} autoCapitalize="characters" autoComplete="off" className={textInputClass} maxLength={40} onChange={(event) => setCode(event.target.value)} placeholder="Enter a code" required value={code} />}
           </Field>
           <Field description="Lower numbers sort below higher numbers." label="Elevation order">
             {(props) => <input {...props} className={textInputClass} inputMode="numeric" onChange={(event) => setElevationOrder(event.target.value)} step="1" type="number" value={elevationOrder} />}
@@ -554,7 +542,6 @@ function SpaceForm({
   onCreate: (input: {
     levelId: string;
     parentSpaceId: string | null;
-    code: string;
     name: string;
     kind: string;
     notes: string | null;
@@ -562,7 +549,6 @@ function SpaceForm({
 }) {
   const [levelId, setLevelId] = useState("");
   const [parentSpaceId, setParentSpaceId] = useState("");
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [kind, setKind] = useState("room");
   const [notes, setNotes] = useState("");
@@ -582,13 +568,11 @@ function SpaceForm({
       await onCreate({
         levelId: selectedLevelId,
         parentSpaceId: selectedParent,
-        code: code.trim(),
         name: name.trim(),
         kind,
         notes: notes.trim() || null,
       })
     ) {
-      setCode("");
       setName("");
       setParentSpaceId("");
       setKind("room");
@@ -620,9 +604,6 @@ function SpaceForm({
           <Field isRequired label="Name">
             {(props) => <input {...props} autoComplete="off" className={textInputClass} maxLength={120} onChange={(event) => setName(event.target.value)} placeholder="Name this room or area" required value={name} />}
           </Field>
-          <Field description="Unique within the selected level." isRequired label="Space code">
-            {(props) => <input {...props} autoCapitalize="characters" autoComplete="off" className={textInputClass} maxLength={40} onChange={(event) => setCode(event.target.value)} placeholder="Enter a code" required value={code} />}
-          </Field>
           <Field label="Space type">
             {(props) => (
               <select {...props} className={selectClass} onChange={(event) => setKind(event.target.value)} value={kind}>
@@ -640,7 +621,7 @@ function SpaceForm({
             {(props) => (
               <select {...props} className={selectClass} onChange={(event) => setParentSpaceId(event.target.value)} value={parentSpaceId}>
                 <option value="">No parent space</option>
-                {parentOptions.map((space) => <option key={space.id} value={space.id}>{space.name} · {space.code}</option>)}
+                {parentOptions.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
               </select>
             )}
           </Field>
@@ -650,6 +631,88 @@ function SpaceForm({
         </>
       )}
       <SubmitButton busy={busy} disabled={!levels.length}>Create room or space</SubmitButton>
+    </form>
+  );
+}
+
+function WallZoneForm({
+  spaces,
+  levels,
+  structures,
+  busy,
+  onCreate,
+}: {
+  spaces: SpaceRecord[];
+  levels: LevelRecord[];
+  structures: StructureRecord[];
+  busy: boolean;
+  onCreate: (input: {
+    spaceId: string;
+    name: string;
+    orientation: string | null;
+    notes: string | null;
+  }) => Promise<boolean>;
+}) {
+  const [spaceId, setSpaceId] = useState("");
+  const [name, setName] = useState("");
+  const [orientation, setOrientation] = useState("");
+  const [notes, setNotes] = useState("");
+  const selectedSpaceId = spaces.some((item) => item.id === spaceId)
+    ? spaceId
+    : spaces[0]?.id ?? "";
+  const levelById = new Map(levels.map((item) => [item.id, item]));
+  const structureById = new Map(structures.map((item) => [item.id, item]));
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedSpaceId) return;
+    if (await onCreate({
+      spaceId: selectedSpaceId,
+      name: name.trim(),
+      orientation: orientation.trim() || null,
+      notes: notes.trim() || null,
+    })) {
+      setName("");
+      setOrientation("");
+      setNotes("");
+    }
+  }
+
+  return (
+    <form className="grid content-start gap-4" onSubmit={(event) => void submit(event)}>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.12em] text-orange-700">Step 4</p>
+        <h3 className="mt-1 text-base font-semibold text-slate-950">Add a wall or zone</h3>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Optionally identify a wall, ceiling, cabinet area, or another useful part of a space.</p>
+      </div>
+      {!spaces.length ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-600">Create a room or space before adding a wall or zone.</div>
+      ) : (
+        <>
+          <Field isRequired label="Room or space">
+            {(props) => (
+              <select {...props} className={selectClass} onChange={(event) => setSpaceId(event.target.value)} value={selectedSpaceId}>
+                {spaces.map((space) => {
+                  const level = levelById.get(space.levelId);
+                  const structure = level ? structureById.get(level.structureId) : undefined;
+                  const hierarchy = [structure?.name, level?.name, space.name].filter(Boolean).join(" · ");
+                  return <option key={space.id} value={space.id}>{hierarchy}</option>;
+                })}
+              </select>
+            )}
+          </Field>
+          <Field isRequired label="Wall or zone name">
+            {(props) => <input {...props} autoComplete="off" className={textInputClass} maxLength={120} onChange={(event) => setName(event.target.value)} placeholder="For example, north wall" required value={name} />}
+          </Field>
+          <Field description="Optional compass direction or physical orientation." label="Orientation">
+            {(props) => <input {...props} autoComplete="off" className={textInputClass} maxLength={120} onChange={(event) => setOrientation(event.target.value)} placeholder="For example, north or ceiling" value={orientation} />}
+          </Field>
+          <Field label="Notes">
+            {(props) => <textarea {...props} className={`${textInputClass} min-h-24 resize-y`} maxLength={4000} onChange={(event) => setNotes(event.target.value)} placeholder="Optional" value={notes} />}
+          </Field>
+        </>
+      )}
+      <SubmitButton busy={busy} disabled={!spaces.length}>Create wall or zone</SubmitButton>
     </form>
   );
 }
@@ -790,7 +853,7 @@ function HierarchyList({
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700"><Building2 aria-hidden="true" className="size-5" /></span>
               <div className="min-w-0">
                 <h3 className="truncate font-semibold text-slate-950">{structure.name}</h3>
-                <p className="mt-0.5 text-xs text-slate-500"><span className="font-mono">{structure.code}</span> · {structure.kind.replaceAll("-", " ")}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{structure.kind.replaceAll("-", " ")}</p>
               </div>
             </div>
             <StatusBadge label={`${levels.length} ${levels.length === 1 ? "level" : "levels"}`} tone="neutral" />
@@ -801,7 +864,7 @@ function HierarchyList({
                 <section className="grid gap-3 px-4 py-4 sm:grid-cols-[12rem_minmax(0,1fr)] sm:px-5" key={level.id}>
                   <div>
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Layers3 aria-hidden="true" className="size-4 text-slate-500" /> {level.name}</div>
-                    <p className="mt-1 text-xs text-slate-500"><span className="font-mono">{level.code}</span> · elevation {level.elevationOrder}</p>
+                    <p className="mt-1 text-xs text-slate-500">Elevation {level.elevationOrder}</p>
                     {floorPlans.length ? <p className="mt-2 text-xs font-medium text-emerald-700">{floorPlans.length} floor-plan {floorPlans.length === 1 ? "view" : "views"}</p> : null}
                   </div>
                   {spaces.length ? (
@@ -814,12 +877,20 @@ function HierarchyList({
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-slate-900">{space.name}</p>
-                                <p className="mt-0.5 text-[0.7rem] text-slate-500"><span className="font-mono">{space.code}</span> · {space.kind.replaceAll("-", " ")}</p>
+                                <p className="mt-0.5 text-[0.7rem] text-slate-500">{space.kind.replaceAll("-", " ")}</p>
                               </div>
                               <Home aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-slate-400" />
                             </div>
                             {parent ? <p className="mt-1 text-[0.7rem] text-slate-500">Inside {parent.name}</p> : null}
-                            {zones.length ? <p className="mt-1 text-[0.7rem] text-slate-500">{zones.length} wall/zone {zones.length === 1 ? "label" : "labels"}</p> : null}
+                            {zones.length ? (
+                              <ul className="mt-2 grid gap-1" aria-label={`Walls and zones in ${space.name}`}>
+                                {zones.map((zone) => (
+                                  <li className="rounded-md bg-white px-2 py-1 text-[0.7rem] text-slate-600" key={zone.id}>
+                                    {zone.name}{zone.orientation ? ` · ${zone.orientation}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
                           </li>
                         );
                       })}
@@ -1144,11 +1215,11 @@ export function SettingsClient({ propertyId }: { propertyId: string }) {
   }
 
   async function createLocation(
-    kind: "structures" | "levels" | "spaces",
+    kind: "structures" | "levels" | "spaces" | "wall-zones",
     input: Record<string, unknown>,
     successMessage: string,
   ): Promise<boolean> {
-    const action = kind === "structures" ? "structure" : kind === "levels" ? "level" : "space";
+    const action = kind === "structures" ? "structure" : kind === "levels" ? "level" : kind === "spaces" ? "space" : "wall-zone";
     setBusyAction(action);
     setLocationNotice(undefined);
     try {
@@ -1273,7 +1344,7 @@ export function SettingsClient({ propertyId }: { propertyId: string }) {
             <AppLink className={primaryButtonClass} href={`/p/${encodeURIComponent(propertyId)}/map`}><MapIcon aria-hidden="true" className="size-4" /> Open map</AppLink>
           </>
         }
-        description="Define this property’s reusable spatial hierarchy, then attach private floor-plan backgrounds. Every name and code below is stored as property data—not application code."
+        description="Define this property’s reusable spatial hierarchy, then attach private floor-plan backgrounds. Names and details are private property data; Circuit Atlas manages internal identifiers automatically."
         eyebrow="Property setup"
         title="Locations, levels, and floor plans"
       />
@@ -1299,7 +1370,7 @@ export function SettingsClient({ propertyId }: { propertyId: string }) {
         <div className={cardClass}>
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-orange-700">Spatial hierarchy</p>
           <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950" id="locations-title">Set up locations</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Create records in order. Codes are user-controlled stable shorthands; display names can be changed later without changing internal identity.</p>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Create records in order using meaningful names. Circuit Atlas assigns stable internal identifiers automatically.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
             {([
               ["Structures", locations.structures.length],
@@ -1311,15 +1382,16 @@ export function SettingsClient({ propertyId }: { propertyId: string }) {
         </div>
 
         <FormNotice notice={locationNotice} />
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className={cardClass}><StructureForm busy={busyAction === "structure"} onCreate={(input) => createLocation("structures", input, `${input.name} was created.`)} /></div>
           <div className={cardClass}><LevelForm busy={busyAction === "level"} onCreate={(input) => createLocation("levels", input, `${input.name} was created.`)} structures={locations.structures} /></div>
           <div className={cardClass}><SpaceForm busy={busyAction === "space"} levels={locations.levels} onCreate={(input) => createLocation("spaces", input, `${input.name} was created.`)} spaces={locations.spaces} structures={locations.structures} /></div>
+          <div className={cardClass}><WallZoneForm busy={busyAction === "wall-zone"} levels={locations.levels} onCreate={(input) => createLocation("wall-zones", input, `${input.name} was created.`)} spaces={locations.spaces} structures={locations.structures} /></div>
         </div>
 
         <div>
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-            <div><h2 className="text-lg font-semibold tracking-tight text-slate-950">Current hierarchy</h2><p className="mt-1 text-sm text-slate-600">Plans and wall/zone counts are shown with the level or room they belong to.</p></div>
+            <div><h2 className="text-lg font-semibold tracking-tight text-slate-950">Current hierarchy</h2><p className="mt-1 text-sm text-slate-600">Plans, walls, and zones are shown with the level or room they belong to.</p></div>
             <StatusBadge label={`${locations.spaces.length} documented spaces`} tone="info" />
           </div>
           <HierarchyList hierarchy={hierarchy} wallZones={locations.wallZones} />

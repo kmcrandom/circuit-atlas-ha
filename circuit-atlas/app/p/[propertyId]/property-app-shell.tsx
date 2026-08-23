@@ -71,7 +71,7 @@ function searchResult(value: unknown, index: number): GlobalSearchResult | null 
       `Record ${index + 1}`,
     kind,
     description: valueText(item.description) ?? valueText(item.subtype),
-    permanentCode: valueText(item.permanentCode) ?? valueText(item.code),
+    permanentCode: valueText(item.permanentCode),
     location: valueText(item.location) ?? valueText(item.locationLabel),
     href: valueText(item.href),
   };
