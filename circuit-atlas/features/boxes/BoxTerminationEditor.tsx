@@ -207,7 +207,7 @@ function ConductorEndsSummary({
     <ul className={styles.inlineList}>
       {ends.map((end) => {
         const node = end.nodeId ? nodeById.get(end.nodeId) : undefined;
-        const destination = node?.label ?? (end.nodeId ? `Missing node ${end.nodeId}` : "Unassigned");
+        const destination = end.connectionState === "connected" ? (node?.label ?? (end.nodeId ? `Missing node ${end.nodeId}` : "Unassigned")) : words(end.connectionState);
         return (
           <li key={end.id}>
             <SelectEntityButton
@@ -597,7 +597,7 @@ export function BoxTerminationEditor({
         </EditSection>
 
         <EditSection addKind="conductor-end" onRequestAdd={onRequestAdd} title="Conductor ends">
-          <EditableTable caption="Edit conductor ends" empty={!model.conductorEnds.length} headings={["End", "Conductor", "Designation", "Connection point", "Termination", "Confidence", "Actions"]}>
+          <EditableTable caption="Edit conductor ends" empty={!model.conductorEnds.length} headings={["End", "Conductor", "Designation", "State", "Connection point", "Termination", "Confidence", "Actions"]}>
             {model.conductorEnds.map((end) => {
               const conductor = model.conductors.find((item) => item.id === end.conductorId);
               return (
@@ -605,7 +605,8 @@ export function BoxTerminationEditor({
                   <th scope="row"><SelectEntityButton onSelect={onSelect} selected={selected} selection={{ kind: "conductor-end", id: end.id }}>{conductor?.permanentCode ?? "Missing conductor"} · {end.designation}</SelectEntityButton></th>
                   <td>{conductor?.permanentCode ?? `Missing: ${end.conductorId}`}</td>
                   <td>{end.designation}</td>
-                  <td><select aria-label={`${end.id} connection point`} onChange={(event) => updateConductorEnd(end.id, "nodeId", event.currentTarget.value || null)} value={end.nodeId ?? ""}><NodeOptions model={model} selectedNodeId={end.nodeId} /></select></td>
+                  <td><select aria-label={`${end.id} connection state`} onChange={(event) => updateConductorEnd(end.id, "connectionState", event.currentTarget.value as BoxConductorEndRecord["connectionState"])} value={end.connectionState}><option value="connected">Connected</option><option value="capped">Capped</option><option value="spare">Spare</option><option value="abandoned">Abandoned</option><option value="repurposed">Repurposed</option><option value="unknown">Unknown</option></select></td>
+                  <td><select aria-label={`${end.id} connection point`} disabled={end.connectionState !== "connected"} onChange={(event) => updateConductorEnd(end.id, "nodeId", event.currentTarget.value || null)} value={end.nodeId ?? ""}><NodeOptions model={model} selectedNodeId={end.nodeId} /></select></td>
                   <td><select aria-label={`${end.id} termination method`} onChange={(event) => updateConductorEnd(end.id, "terminationMethod", event.currentTarget.value as BoxTerminationMethod)} value={end.terminationMethod}>{preserveUnlistedOption(end.terminationMethod, BOX_TERMINATION_METHODS)}<OptionList values={BOX_TERMINATION_METHODS} /></select></td>
                   <td><select aria-label={`${end.id} certainty`} onChange={(event) => updateConductorEnd(end.id, "certainty", event.currentTarget.value as BoxTerminationCertainty)} value={end.certainty ?? "unknown"}>{preserveUnlistedOption(end.certainty, BOX_TERMINATION_CERTAINTIES)}<OptionList values={BOX_TERMINATION_CERTAINTIES} /></select></td>
                   <td><RemoveButton label={`${conductor?.permanentCode ?? end.conductorId} end ${end.designation}`} onRequestRemove={onRequestRemove} selection={{ kind: "conductor-end", id: end.id }} /></td>

@@ -15,6 +15,7 @@ import {
 import { ConflictError, InvalidRequestError } from "@/lib/http/responses";
 import { requireOwnedProperty } from "./workspaces";
 import { bumpPropertyRevision, nextPropertyCode } from "./core";
+import { requireEditableWiringConfiguration } from "./wiring-configurations";
 
 export type PanelCreateInput = {
   displayName: string;
@@ -326,6 +327,7 @@ async function upsertInstalledProduct(
 
 export async function createAssetAggregate(identity: RequestIdentity, propertyId: string, input: AssetDraft) {
   await requireOwnedProperty(identity, propertyId);
+  const wiringConfiguration = await requireEditableWiringConfiguration(identity, propertyId);
   const db = getDb();
   const assetId = crypto.randomUUID();
   const permanentCode = await nextPropertyCode(identity, propertyId, prefixByKind[input.kind]);
@@ -352,7 +354,7 @@ export async function createAssetAggregate(identity: RequestIdentity, propertyId
     const gang = Number(input.gangPosition);
     if (!Number.isSafeInteger(gang) || gang < 1) throw new InvalidRequestError("Gang position must be a positive integer.");
     const mountId = crypto.randomUUID();
-    statements.push(db.insert(s.assetMounts).values({ id: mountId, propertyId, boxAssetId: input.boxId, mountedAssetId: assetId, startGangIndex: gang }), db.insert(s.assetMountPositions).values({ propertyId, mountId, boxAssetId: input.boxId, gangIndex: gang }));
+    statements.push(db.insert(s.assetMounts).values({ id: mountId, propertyId, wiringConfigurationId: wiringConfiguration.id, boxAssetId: input.boxId, mountedAssetId: assetId, startGangIndex: gang }), db.insert(s.assetMountPositions).values({ propertyId, wiringConfigurationId: wiringConfiguration.id, mountId, boxAssetId: input.boxId, gangIndex: gang }));
   }
   if (input.installedProduct) {
     const installedProductId = crypto.randomUUID();
@@ -407,7 +409,7 @@ export async function createAssetAggregate(identity: RequestIdentity, propertyId
       }
     }
   }
-  for (const circuitId of input.assertedCircuitIds ?? []) statements.push(db.insert(s.assetCircuitAssertions).values({ id: crypto.randomUUID(), propertyId, assetId, circuitId, status: "active", certainty: "assumed" }));
+  for (const circuitId of input.assertedCircuitIds ?? []) statements.push(db.insert(s.assetCircuitAssertions).values({ id: crypto.randomUUID(), propertyId, wiringConfigurationId: wiringConfiguration.id, assetId, circuitId, status: "active", certainty: "assumed" }));
   runStatementsAtomically(statements);
   await bumpPropertyRevision(propertyId, true);
   return { assetId, permanentCode };
@@ -421,6 +423,7 @@ export async function updateAssetAggregate(
   input: Partial<Omit<AssetDraft, "kind">> & { lifecycleState?: "active" | "archived" },
 ) {
   await requireOwnedProperty(identity, propertyId);
+  const wiringConfiguration = await requireEditableWiringConfiguration(identity, propertyId);
   const db = getDb();
   const existing = await db.query.assets.findFirst({ where: and(eq(s.assets.propertyId, propertyId), eq(s.assets.id, assetId), ne(s.assets.lifecycleState, "archived")) });
   if (!existing) throw new InvalidRequestError("Asset not found in this property.");
@@ -459,7 +462,7 @@ export async function updateAssetAggregate(
     else await db.insert(s.assetLocations).values({ id: crypto.randomUUID(), propertyId, assetId, spaceId: input.locationId, locatorLabel: input.locatorLabel });
   }
   if (input.boxId !== undefined || input.gangPosition !== undefined) {
-    const oldMount = await db.query.assetMounts.findFirst({ where: and(eq(s.assetMounts.propertyId, propertyId), eq(s.assetMounts.mountedAssetId, assetId)) });
+    const oldMount = await db.query.assetMounts.findFirst({ where: and(eq(s.assetMounts.propertyId, propertyId), eq(s.assetMounts.wiringConfigurationId, wiringConfiguration.id), eq(s.assetMounts.mountedAssetId, assetId)) });
     if (oldMount) {
       await db.delete(s.assetMountPositions).where(and(eq(s.assetMountPositions.propertyId, propertyId), eq(s.assetMountPositions.mountId, oldMount.id)));
       await db.delete(s.assetMounts).where(and(eq(s.assetMounts.propertyId, propertyId), eq(s.assetMounts.id, oldMount.id)));
@@ -469,8 +472,8 @@ export async function updateAssetAggregate(
       if (!Number.isSafeInteger(gang) || gang < 1) throw new InvalidRequestError("Gang position must be a positive integer.");
       const mountId = crypto.randomUUID();
       runStatementsAtomically([
-        db.insert(s.assetMounts).values({ id: mountId, propertyId, boxAssetId: input.boxId, mountedAssetId: assetId, startGangIndex: gang }),
-        db.insert(s.assetMountPositions).values({ propertyId, mountId, boxAssetId: input.boxId, gangIndex: gang }),
+        db.insert(s.assetMounts).values({ id: mountId, propertyId, wiringConfigurationId: wiringConfiguration.id, boxAssetId: input.boxId, mountedAssetId: assetId, startGangIndex: gang }),
+        db.insert(s.assetMountPositions).values({ propertyId, wiringConfigurationId: wiringConfiguration.id, mountId, boxAssetId: input.boxId, gangIndex: gang }),
       ]);
     }
   }
@@ -482,8 +485,8 @@ export async function updateAssetAggregate(
     }
   }
   if (input.assertedCircuitIds !== undefined) {
-    await db.update(s.assetCircuitAssertions).set({ status: "superseded", revision: sql`${s.assetCircuitAssertions.revision} + 1`, updatedAt: sql`CURRENT_TIMESTAMP` }).where(and(eq(s.assetCircuitAssertions.propertyId, propertyId), eq(s.assetCircuitAssertions.assetId, assetId), eq(s.assetCircuitAssertions.status, "active")));
-    if (input.assertedCircuitIds.length) await db.insert(s.assetCircuitAssertions).values(input.assertedCircuitIds.map((circuitId) => ({ id: crypto.randomUUID(), propertyId, assetId, circuitId, status: "active" as const, certainty: "assumed" as const })));
+    await db.update(s.assetCircuitAssertions).set({ status: "superseded", revision: sql`${s.assetCircuitAssertions.revision} + 1`, updatedAt: sql`CURRENT_TIMESTAMP` }).where(and(eq(s.assetCircuitAssertions.propertyId, propertyId), eq(s.assetCircuitAssertions.wiringConfigurationId, wiringConfiguration.id), eq(s.assetCircuitAssertions.assetId, assetId), eq(s.assetCircuitAssertions.status, "active")));
+    if (input.assertedCircuitIds.length) await db.insert(s.assetCircuitAssertions).values(input.assertedCircuitIds.map((circuitId) => ({ id: crypto.randomUUID(), propertyId, wiringConfigurationId: wiringConfiguration.id, assetId, circuitId, status: "active" as const, certainty: "assumed" as const })));
   }
   if (input.lightSources !== undefined) {
     const fixture = await db.query.fixtures.findFirst({ where: and(eq(s.fixtures.propertyId, propertyId), eq(s.fixtures.assetId, assetId)) });

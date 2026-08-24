@@ -12,11 +12,13 @@ import {
   controlMembers,
   assetFunctions,
   conductorEnds,
+  conductorEndConnections,
   conductors,
   electricalNodes,
   internalConnections,
   terminals,
   traceGaps,
+  wiringConfigurationNodes,
 } from "@/db/schema";
 import type { RequestIdentity } from "@/lib/auth/identity";
 import type {
@@ -32,6 +34,7 @@ import { validateTopology } from "@/lib/validation/topology";
 import type { TopologyVisualModel } from "@/features/wiring/model";
 import { NotFoundError } from "@/lib/http/responses";
 import { requireOwnedProperty } from "./workspaces";
+import { resolveWiringConfiguration } from "./wiring-configurations";
 
 const certaintyMap: Record<string, Certainty> = {
   visually_observed: "visually-observed",
@@ -94,8 +97,9 @@ function internalKind(value: string) {
 export async function loadElectricalTopology(
   identity: RequestIdentity,
   propertyId: string,
+  configurationId?: string | null,
 ): Promise<ElectricalTopology> {
-  await requireOwnedProperty(identity, propertyId);
+  const wiringConfiguration = await resolveWiringConfiguration(identity, propertyId, configurationId);
   const db = getDb();
   const [
     nodeRows,
@@ -112,6 +116,8 @@ export async function loadElectricalTopology(
     activeCircuitRows,
     activeBreakerRows,
     allPoleRows,
+    configurationNodeRows,
+    configuredEndRows,
   ] = await Promise.all([
     db.select().from(electricalNodes).where(and(eq(electricalNodes.propertyId, propertyId), ne(electricalNodes.lifecycleState, "archived"))),
     db.select().from(terminals).where(eq(terminals.propertyId, propertyId)),
@@ -127,12 +133,15 @@ export async function loadElectricalTopology(
     db.select({ id: circuits.id }).from(circuits).where(and(eq(circuits.propertyId, propertyId), ne(circuits.lifecycleState, "archived"))),
     db.select({ id: breakers.id }).from(breakers).where(and(eq(breakers.propertyId, propertyId), ne(breakers.lifecycleState, "archived"))),
     db.select().from(breakerPoles).where(eq(breakerPoles.propertyId, propertyId)),
+    db.select().from(wiringConfigurationNodes).where(and(eq(wiringConfigurationNodes.propertyId, propertyId), eq(wiringConfigurationNodes.wiringConfigurationId, wiringConfiguration.id))),
+    db.select().from(conductorEndConnections).where(and(eq(conductorEndConnections.propertyId, propertyId), eq(conductorEndConnections.wiringConfigurationId, wiringConfiguration.id))),
   ]);
   const activeAssetIds = new Set(activeAssetRows.map((row) => row.id));
   const activeCircuitIds = new Set(activeCircuitRows.map((row) => row.id));
   const activeBreakerIds = new Set(activeBreakerRows.map((row) => row.id));
   const activePoleIds = new Set(allPoleRows.filter((row) => activeBreakerIds.has(row.breakerId)).map((row) => row.id));
-  const activeNodes = nodeRows.filter((row) => (!row.containingAssetId || activeAssetIds.has(row.containingAssetId)) && (!row.containingBoxAssetId || activeAssetIds.has(row.containingBoxAssetId)));
+  const configuredNodeIds = new Set(configurationNodeRows.map((row) => row.electricalNodeId));
+  const activeNodes = nodeRows.filter((row) => configuredNodeIds.has(row.id) && (!row.containingAssetId || activeAssetIds.has(row.containingAssetId)) && (!row.containingBoxAssetId || activeAssetIds.has(row.containingBoxAssetId)));
   const activeNodeIds = new Set(activeNodes.map((row) => row.id));
   const activeConductors = conductorRows.filter((row) => !row.cableAssetId || activeAssetIds.has(row.cableAssetId));
   const activeConductorIds = new Set(activeConductors.map((row) => row.id));
@@ -167,15 +176,19 @@ export async function loadElectricalTopology(
       observedRole: row.observedRole ?? undefined,
       assignedRole: row.assignedRole ?? undefined,
     })),
-    conductorEnds: endRows.filter((row) => activeConductorIds.has(row.conductorId) && activeNodeIds.has(row.electricalNodeId)).map((row) => ({
+    conductorEnds: configuredEndRows.filter((row) => row.connectionState === "connected" && row.electricalNodeId && activeNodeIds.has(row.electricalNodeId)).flatMap((connection) => {
+      const row = endRows.find((candidate) => candidate.id === connection.conductorEndId);
+      if (!row || !activeConductorIds.has(row.conductorId) || !connection.electricalNodeId) return [];
+      return [{
       id: row.id,
       propertyId,
       conductorId: row.conductorId,
       designation: row.designation,
-      nodeId: row.electricalNodeId,
-      terminationMethod: row.terminationMethod,
-      certainty: certainty(row.certainty),
-    })),
+      nodeId: connection.electricalNodeId,
+      terminationMethod: connection.terminationMethod,
+      certainty: certainty(connection.certainty),
+    }];
+    }),
     internalConnections: connectionRows.filter((row) => activeAssetIds.has(row.owningAssetId) && activeNodeIds.has(row.fromNodeId) && activeNodeIds.has(row.toNodeId)).map((row) => ({
       id: row.id,
       propertyId,
@@ -216,7 +229,7 @@ export async function loadElectricalTopology(
       endpointAssetId: row.endpointAssetId ?? undefined,
       certainty: certainty(row.certainty),
     })),
-    traceGaps: gapRows.map((row) => ({
+    traceGaps: gapRows.filter((row) => row.wiringConfigurationId === wiringConfiguration.id).map((row) => ({
       id: row.id,
       propertyId,
       fromNodeId: row.fromNodeId ?? undefined,
@@ -227,7 +240,7 @@ export async function loadElectricalTopology(
       label: row.description,
       certainty: certainty(row.certainty),
     })),
-    assertions: assertionRows.filter((row) => activeAssetIds.has(row.assetId) && activeCircuitIds.has(row.circuitId)).map((row) => ({
+    assertions: assertionRows.filter((row) => row.wiringConfigurationId === wiringConfiguration.id && activeAssetIds.has(row.assetId) && activeCircuitIds.has(row.circuitId)).map((row) => ({
       id: row.id,
       propertyId,
       target: row.assetFunctionId
@@ -315,8 +328,9 @@ export async function tracePropertyTopology(
   identity: RequestIdentity,
   propertyId: string,
   root: TraceRoot,
+  configurationId?: string | null,
 ) {
-  const topology = await loadElectricalTopology(identity, propertyId);
+  const topology = await loadElectricalTopology(identity, propertyId, configurationId);
   const trace = traceTopology(topology, [root]);
   return {
     topology,
@@ -362,8 +376,9 @@ export async function topologyEntityCircuitLookup(
   identity: RequestIdentity,
   propertyId: string,
   target: { kind: "asset" | "box" | "cable" | "conductor" | "node"; id: string },
+  configurationId?: string | null,
 ) {
-  const topology = await loadElectricalTopology(identity, propertyId);
+  const topology = await loadElectricalTopology(identity, propertyId, configurationId);
   const trace = traceTopology(topology, [target]);
   const circuitIds = [...new Set(trace.sources.map((source) => source.circuitId))];
   const poleIds = [...new Set(trace.sources.map((source) => source.breakerPoleId))];
@@ -390,6 +405,7 @@ export async function breakerConnectedLookup(
   identity: RequestIdentity,
   propertyId: string,
   breakerId: string,
+  configurationId?: string | null,
 ) {
   await requireOwnedProperty(identity, propertyId);
   const db = getDb();
@@ -398,10 +414,11 @@ export async function breakerConnectedLookup(
   });
   if (!breaker) throw new NotFoundError("Breaker not found.");
   const poles = await db.select().from(breakerPoles).where(and(eq(breakerPoles.propertyId, propertyId), eq(breakerPoles.breakerId, breakerId)));
-  const topology = await loadElectricalTopology(identity, propertyId);
+  const wiringConfiguration = await resolveWiringConfiguration(identity, propertyId, configurationId);
+  const topology = await loadElectricalTopology(identity, propertyId, wiringConfiguration.id);
   const traces = poles.map((pole) => traceTopology(topology, [{ kind: "breaker-pole", id: pole.id }]));
   const reachedAssetIds = [...new Set(traces.flatMap((trace) => trace.reached.assetIds))];
-  const manual = await db.select().from(assetCircuitAssertions).where(and(eq(assetCircuitAssertions.propertyId, propertyId), eq(assetCircuitAssertions.status, "active")));
+  const manual = await db.select().from(assetCircuitAssertions).where(and(eq(assetCircuitAssertions.propertyId, propertyId), eq(assetCircuitAssertions.wiringConfigurationId, wiringConfiguration.id), eq(assetCircuitAssertions.status, "active")));
   const poleIds = poles.map((pole) => pole.id);
   const directSourceRows = poleIds.length
     ? await db.select().from(circuitSources).where(and(eq(circuitSources.propertyId, propertyId), inArray(circuitSources.breakerPoleId, poleIds)))
@@ -415,7 +432,7 @@ export async function breakerConnectedLookup(
   const circuitIds = activeCircuitRows.map((row) => row.id);
   const assertedAssetIds = manual.filter((assertion) => circuitIds.includes(assertion.circuitId)).map((assertion) => assertion.assetId);
   const allAssetIds = [...new Set([...reachedAssetIds, ...assertedAssetIds])];
-  const memberRows = await db.select().from(controlMembers).where(eq(controlMembers.propertyId, propertyId));
+  const memberRows = await db.select().from(controlMembers).where(and(eq(controlMembers.propertyId, propertyId), eq(controlMembers.wiringConfigurationId, wiringConfiguration.id)));
   const functionRows = await db.select().from(assetFunctions).where(eq(assetFunctions.propertyId, propertyId));
   const functionById = new Map(functionRows.map((row) => [row.id, row]));
   const relevantGroupIds = new Set(memberRows.filter((member) => {

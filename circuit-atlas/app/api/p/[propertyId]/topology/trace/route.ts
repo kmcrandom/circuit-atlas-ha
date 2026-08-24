@@ -12,13 +12,14 @@ export async function GET(request: Request, context: Params) {
     const url = new URL(request.url);
     const kind = rootKind.safeParse(url.searchParams.get("rootKind"));
     const id = url.searchParams.get("rootId");
+    const configurationId = url.searchParams.get("configurationId");
     if (!kind.success || !id) throw new InvalidRequestError("rootKind and rootId are required.");
     if (kind.data === "breaker") {
-      const lookup = await breakerConnectedLookup(identity, propertyId, id);
-      const topology = await loadElectricalTopology(identity, propertyId);
+      const lookup = await breakerConnectedLookup(identity, propertyId, id, configurationId);
+      const topology = await loadElectricalTopology(identity, propertyId, configurationId);
       const trace = traceTopology(topology, lookup.poles.map((pole) => ({ kind: "breaker-pole" as const, id: pole.id })));
       return { topology, trace, validation: validateTopology(topology), visualModel: topologyVisualModel(topology, trace, lookup.breaker.label) };
     }
-    return tracePropertyTopology(identity, propertyId, { kind: kind.data, id });
+    return tracePropertyTopology(identity, propertyId, { kind: kind.data, id }, configurationId);
   });
 }

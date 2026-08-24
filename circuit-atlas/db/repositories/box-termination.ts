@@ -29,7 +29,7 @@ import {
 } from "@/lib/http/responses";
 
 import { nextPropertyCode } from "./core";
-import { requireOwnedProperty } from "./workspaces";
+import { requireEditableWiringConfiguration, resolveWiringConfiguration } from "./wiring-configurations";
 
 export const boxTerminationKinds = [
   "terminals",
@@ -46,6 +46,7 @@ type MutationContext = {
   identity: RequestIdentity;
   propertyId: string;
   requestId?: string | null;
+  wiringConfigurationId?: string | null;
 };
 
 const toUiConductorKind: Record<string, BoxConductorKind> = {
@@ -130,14 +131,16 @@ export async function getBoxTerminationModel(
   identity: RequestIdentity,
   propertyId: string,
   boxId: string,
+  configurationId?: string | null,
 ): Promise<BoxTerminationModel> {
-  await requireOwnedProperty(identity, propertyId);
+  const wiringConfiguration = await resolveWiringConfiguration(identity, propertyId, configurationId);
   const { asset: boxAsset } = await ownedBox(propertyId, boxId);
   const db = getDb();
 
   const [mountRows, boxSpliceRows, boxBondRows] = await Promise.all([
     db.select().from(schema.assetMounts).where(and(
       eq(schema.assetMounts.propertyId, propertyId),
+      eq(schema.assetMounts.wiringConfigurationId, wiringConfiguration.id),
       eq(schema.assetMounts.boxAssetId, boxId),
     )).orderBy(asc(schema.assetMounts.startGangIndex), asc(schema.assetMounts.id)),
     db.select().from(schema.splices).where(and(
@@ -164,14 +167,16 @@ export async function getBoxTerminationModel(
       ? [inArray(schema.electricalNodes.id, subtypeNodeIds)]
       : []),
   ];
+  const configurationNodeRows = await db.select().from(schema.wiringConfigurationNodes).where(and(eq(schema.wiringConfigurationNodes.propertyId, propertyId), eq(schema.wiringConfigurationNodes.wiringConfigurationId, wiringConfiguration.id)));
+  const configuredNodeIds = new Set(configurationNodeRows.map((row) => row.electricalNodeId));
   const nodeRows = await db.select().from(schema.electricalNodes).where(and(
     eq(schema.electricalNodes.propertyId, propertyId),
     ne(schema.electricalNodes.lifecycleState, "archived"),
     or(...nodeScope),
-  )).orderBy(asc(schema.electricalNodes.id));
+  )).orderBy(asc(schema.electricalNodes.id)).then((rows) => rows.filter((row) => configuredNodeIds.has(row.id)));
   const nodeIds = nodeRows.map((row) => row.id);
 
-  const [terminalRows, spliceRows, openRows, bondRows, localEndRows] = nodeIds.length
+  const [terminalRows, spliceRows, openRows, bondRows] = nodeIds.length
     ? await Promise.all([
         db.select().from(schema.terminals).where(and(
           eq(schema.terminals.propertyId, propertyId),
@@ -189,14 +194,23 @@ export async function getBoxTerminationModel(
           eq(schema.bondPoints.propertyId, propertyId),
           inArray(schema.bondPoints.electricalNodeId, nodeIds),
         )),
-        db.select().from(schema.conductorEnds).where(and(
-          eq(schema.conductorEnds.propertyId, propertyId),
-          inArray(schema.conductorEnds.electricalNodeId, nodeIds),
-        )).orderBy(asc(schema.conductorEnds.conductorId), asc(schema.conductorEnds.designation)),
       ])
-    : [[], [], [], [], []];
+    : [[], [], [], []];
 
-  const conductorIds = [...new Set(localEndRows.map((row) => row.conductorId))];
+  const configurationEndRows = await db.select().from(schema.conductorEndConnections).where(and(
+    eq(schema.conductorEndConnections.propertyId, propertyId),
+    eq(schema.conductorEndConnections.wiringConfigurationId, wiringConfiguration.id),
+  )).orderBy(asc(schema.conductorEndConnections.conductorEndId));
+  const physicalEndRows = configurationEndRows.length ? await db.select().from(schema.conductorEnds).where(and(eq(schema.conductorEnds.propertyId, propertyId), inArray(schema.conductorEnds.id, configurationEndRows.map((row) => row.conductorEndId)))) : [];
+  const physicalEndById = new Map(physicalEndRows.map((row) => [row.id, row]));
+  const localEndRows = configurationEndRows.filter((connection) => {
+    const physicalEnd = physicalEndById.get(connection.conductorEndId);
+    return Boolean((connection.electricalNodeId && nodeIds.includes(connection.electricalNodeId)) || (physicalEnd && nodeIds.includes(physicalEnd.electricalNodeId)));
+  });
+  const conductorIds = [...new Set(localEndRows.flatMap((row) => {
+    const end = physicalEndById.get(row.conductorEndId);
+    return end ? [end.conductorId] : [];
+  }))];
   const conductorRows = conductorIds.length
     ? await db.select().from(schema.conductors).where(and(
         eq(schema.conductors.propertyId, propertyId),
@@ -222,6 +236,10 @@ export async function getBoxTerminationModel(
   const nodeById = new Map(nodeRows.map((row) => [row.id, row]));
   const assetById = new Map(relatedAssets.map((row) => [row.id, row]));
   const conductorById = new Map(conductorRows.map((row) => [row.id, row]));
+  const configuredRoleByConductorId = new Map(localEndRows.flatMap((connection) => {
+    const end = physicalEndById.get(connection.conductorEndId);
+    return end ? [[end.conductorId, connection.conductorRole] as const] : [];
+  }));
 
   const terminals: BoxTerminalRecord[] = terminalRows.map((row) => {
     const owner = assetById.get(row.owningAssetId);
@@ -270,19 +288,21 @@ export async function getBoxTerminationModel(
     kind: toUiConductorKind[row.kind] ?? "unknown",
     observedInsulationColor: row.observedInsulationColor ?? undefined,
     reidentificationMarking: row.reidentificationMarking ?? undefined,
-    assignedFunction: row.assignedRole ? hyphenate<BoxConductorFunction>(row.assignedRole) : undefined,
+    assignedFunction: configuredRoleByConductorId.get(row.id) ? hyphenate<BoxConductorFunction>(configuredRoleByConductorId.get(row.id)!) : undefined,
     gauge: row.gauge,
     notes: row.notes ?? undefined,
     revision: row.revision,
   }));
   const conductorEnds: BoxConductorEndRecord[] = localEndRows.flatMap((row) => {
-    const conductor = conductorById.get(row.conductorId);
-    if (!conductor) return [];
+    const physicalEnd = physicalEndById.get(row.conductorEndId);
+    const conductor = physicalEnd ? conductorById.get(physicalEnd.conductorId) : null;
+    if (!conductor || !physicalEnd) return [];
     return [{
-      id: row.id,
-      conductorId: row.conductorId,
-      designation: row.designation,
+      id: physicalEnd.id,
+      conductorId: physicalEnd.conductorId,
+      designation: physicalEnd.designation,
       nodeId: row.electricalNodeId,
+      connectionState: row.connectionState,
       terminationMethod: hyphenate(row.terminationMethod),
       certainty: hyphenate<BoxTerminationCertainty>(row.certainty),
       notes: row.notes ?? undefined,
@@ -427,7 +447,7 @@ export type PatchBoxTerminationInput =
   | { kind: "open-endpoints"; values: Partial<Pick<BoxOpenEndpointRecord, "endpointKind" | "label" | "description">> }
   | { kind: "bond-points"; values: Partial<Pick<BoxBondPointRecord, "label" | "description">> }
   | { kind: "conductors"; values: Partial<Pick<BoxConductorRecord, "kind" | "observedInsulationColor" | "reidentificationMarking" | "assignedFunction" | "gauge">> }
-  | { kind: "conductor-ends"; values: Partial<Pick<BoxConductorEndRecord, "nodeId" | "terminationMethod" | "certainty">> };
+  | { kind: "conductor-ends"; values: Partial<Pick<BoxConductorEndRecord, "nodeId" | "connectionState" | "terminationMethod" | "certainty">> };
 
 export async function patchBoxTermination(
   context: MutationContext,
@@ -436,29 +456,32 @@ export async function patchBoxTermination(
   revision: number,
   input: PatchBoxTerminationInput,
 ) {
-  await requireOwnedProperty(context.identity, context.propertyId);
+  const wiringConfiguration = await requireEditableWiringConfiguration(context.identity, context.propertyId, context.wiringConfigurationId);
+  context.wiringConfigurationId = wiringConfiguration.id;
   await ownedBox(context.propertyId, boxId);
   if (await mutationAlreadyApplied(context)) {
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
   const database = getSqliteConnection();
 
   if (input.kind === "conductors") {
     const conductor = await requireConductorRevision(context.propertyId, id, revision);
-    const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
     if (!model.conductors.some((item) => item.id === id)) throw new NotFoundError("Conductor is not terminated in this box.");
     const values: Array<[string, string | null]> = [];
     if (input.values.kind !== undefined) values.push(["kind", databaseConductorKind(input.values.kind)]);
     if (input.values.observedInsulationColor !== undefined) values.push(["observed_insulation_color", nonEmpty(input.values.observedInsulationColor)]);
     if (input.values.reidentificationMarking !== undefined) values.push(["reidentification_marking", nonEmpty(input.values.reidentificationMarking)]);
-    if (input.values.assignedFunction !== undefined) values.push(["assigned_role", databaseConductorRole(input.values.assignedFunction)]);
+    const configuredRole = input.values.assignedFunction !== undefined ? databaseConductorRole(input.values.assignedFunction) ?? "unknown" : null;
     if (input.values.gauge !== undefined) values.push(["gauge", nonEmpty(input.values.gauge)]);
-    if (!values.length) throw new InvalidRequestError("At least one editable conductor field is required.");
+    if (!values.length && configuredRole === null) throw new InvalidRequestError("At least one editable conductor field is required.");
     const guard = database.prepare(
-      `UPDATE conductors SET ${values.map(([column]) => `${column} = ?`).join(", ")}, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'`,
+      `UPDATE conductors SET ${values.map(([column]) => `${column} = ?`).join(", ")}${values.length ? ", " : ""}revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'`,
     ).bind(...values.map(([, value]) => value), context.propertyId, id, revision);
-    await runGuardedBatch(context, guard, [], "conductors", id, conductor.revision + 1, { kind: "conductor", id });
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    const roleStatement = configuredRole === null ? [] : [database.prepare("UPDATE conductor_end_connections SET conductor_role = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND wiring_configuration_id = ? AND conductor_end_id IN (SELECT id FROM conductor_ends WHERE property_id = ? AND conductor_id = ?)")
+      .bind(configuredRole, context.propertyId, wiringConfiguration.id, context.propertyId, id)];
+    await runGuardedBatch(context, guard, roleStatement, "conductors", id, conductor.revision + 1, { kind: "conductor", id });
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
 
   if (input.kind === "conductor-ends") {
@@ -469,28 +492,30 @@ export async function patchBoxTermination(
     ) });
     if (!end) throw new NotFoundError("Conductor end not found.");
     const conductor = await requireConductorRevision(context.propertyId, end.conductorId, revision);
-    const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
     if (!model.conductorEnds.some((item) => item.id === id)) throw new NotFoundError("Conductor end is not terminated in this box.");
     const values: Array<[string, string | null]> = [];
     if (input.values.nodeId !== undefined) {
-      if (!input.values.nodeId) throw new InvalidRequestError("Choose a recorded terminal, splice, open endpoint, or bond point.");
-      if (![...model.terminals, ...model.splices, ...model.openEndpoints, ...model.bondPoints].some((item) => item.id === input.values.nodeId)) {
+      if (input.values.nodeId && ![...model.terminals, ...model.splices, ...model.openEndpoints, ...model.bondPoints].some((item) => item.id === input.values.nodeId)) {
         throw new InvalidRequestError("The selected connection point is not in this box.");
       }
-      values.push(["electrical_node_id", input.values.nodeId]);
+      values.push(["electrical_node_id", input.values.nodeId || null]);
     }
+    if (input.values.connectionState !== undefined) values.push(["connection_state", input.values.connectionState]);
     if (input.values.terminationMethod !== undefined) values.push(["termination_method", databaseTerminationMethod(input.values.terminationMethod)]);
     if (input.values.certainty !== undefined) values.push(["certainty", databaseCertainty(input.values.certainty)]);
-    const statement = sqlPatch("conductor_ends", "id", id, context.propertyId, values);
+    if (!values.length) throw new InvalidRequestError("At least one editable conductor-end field is required.");
+    const statement = database.prepare(`UPDATE conductor_end_connections SET ${values.map(([column]) => `${column} = ?`).join(", ")}, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND wiring_configuration_id = ? AND conductor_end_id = ?`)
+      .bind(...values.map(([, value]) => value), context.propertyId, wiringConfiguration.id, id);
     const guard = database.prepare(
       "UPDATE conductors SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'",
     ).bind(context.propertyId, end.conductorId, revision);
     await runGuardedBatch(context, guard, [statement], "conductor-ends", id, conductor.revision + 1, { kind: "conductor", id: end.conductorId });
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
 
   const node = await requireNodeRevision(context.propertyId, id, revision);
-  const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId);
+  const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   const collection = input.kind === "terminals" ? model.terminals
     : input.kind === "splices" ? model.splices
       : input.kind === "open-endpoints" ? model.openEndpoints
@@ -536,7 +561,7 @@ export async function patchBoxTermination(
     `UPDATE electrical_nodes SET ${nodeValues.map(([column]) => `${column} = ?, `).join("")}revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'`,
   ).bind(...nodeValues.map(([, value]) => value), context.propertyId, id, revision);
   await runGuardedBatch(context, guard, child ? [child] : [], input.kind, id, node.revision + 1, { kind: "node", id });
-  return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+  return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
 }
 
 export type CreateBoxTerminationInput =
@@ -564,6 +589,8 @@ async function createNodeTermination(
         "INSERT INTO electrical_nodes (id, property_id, kind, containing_box_asset_id, containing_asset_id, label, certainty, lifecycle_state, revision) VALUES (?, ?, ?, ?, ?, ?, 'unknown', 'active', 1)",
       ).bind(nodeId, context.propertyId, kind, boxId, containingAssetId, label),
       child(database, nodeId),
+      database.prepare("INSERT INTO wiring_configuration_nodes (property_id, wiring_configuration_id, electrical_node_id) VALUES (?, ?, ?)")
+        .bind(context.propertyId, context.wiringConfigurationId, nodeId),
       ...mutationTail(database, context, entityType, nodeId, 1, "create"),
     ]);
   } catch (error) {
@@ -577,10 +604,11 @@ export async function createBoxTermination(
   boxId: string,
   input: CreateBoxTerminationInput,
 ) {
-  await requireOwnedProperty(context.identity, context.propertyId);
+  const wiringConfiguration = await requireEditableWiringConfiguration(context.identity, context.propertyId, context.wiringConfigurationId);
+  context.wiringConfigurationId = wiringConfiguration.id;
   await ownedBox(context.propertyId, boxId);
   if (await mutationAlreadyApplied(context)) {
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
   const db = getDb();
   const database = getSqliteConnection();
@@ -588,7 +616,7 @@ export async function createBoxTermination(
   if (input.kind === "terminals") {
     const [owner, mount] = await Promise.all([
       db.query.assets.findFirst({ where: and(eq(schema.assets.propertyId, context.propertyId), eq(schema.assets.id, input.owningAssetId), ne(schema.assets.lifecycleState, "archived")) }),
-      db.query.assetMounts.findFirst({ where: and(eq(schema.assetMounts.propertyId, context.propertyId), eq(schema.assetMounts.boxAssetId, boxId), eq(schema.assetMounts.mountedAssetId, input.owningAssetId)) }),
+      db.query.assetMounts.findFirst({ where: and(eq(schema.assetMounts.propertyId, context.propertyId), eq(schema.assetMounts.wiringConfigurationId, wiringConfiguration.id), eq(schema.assetMounts.boxAssetId, boxId), eq(schema.assetMounts.mountedAssetId, input.owningAssetId)) }),
     ]);
     if (!owner || !mount) throw new InvalidRequestError("Choose a device mounted in this box.");
     const terminalKey = nonEmpty(input.terminalKey);
@@ -639,6 +667,10 @@ export async function createBoxTermination(
           .bind(endAId, context.propertyId, id, endANodeId),
         database.prepare("INSERT INTO conductor_ends (id, property_id, conductor_id, designation, electrical_node_id, termination_method, certainty) VALUES (?, ?, ?, 'B', ?, 'unknown', 'unknown')")
           .bind(endBId, context.propertyId, id, endBNodeId),
+        database.prepare("INSERT INTO wiring_configuration_nodes (property_id, wiring_configuration_id, electrical_node_id) VALUES (?, ?, ?), (?, ?, ?)")
+          .bind(context.propertyId, wiringConfiguration.id, endANodeId, context.propertyId, wiringConfiguration.id, endBNodeId),
+        database.prepare("INSERT INTO conductor_end_connections (id, property_id, wiring_configuration_id, conductor_end_id, electrical_node_id, termination_method, certainty, conductor_role, connection_state) VALUES (?, ?, ?, ?, ?, 'unknown', 'unknown', 'unknown', 'connected'), (?, ?, ?, ?, ?, 'unknown', 'unknown', 'unknown', 'connected')")
+          .bind(crypto.randomUUID(), context.propertyId, wiringConfiguration.id, endAId, endANodeId, crypto.randomUUID(), context.propertyId, wiringConfiguration.id, endBId, endBNodeId),
         ...mutationTail(database, context, input.kind, id, 1, "create"),
       ]);
     } catch (error) {
@@ -646,7 +678,7 @@ export async function createBoxTermination(
     }
   } else {
     const conductor = await requireConductorRevision(context.propertyId, input.conductorId, input.revision);
-    const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
     if (!model.conductors.some((item) => item.id === input.conductorId)) {
       throw new InvalidRequestError("Choose a conductor already recorded at this box.");
     }
@@ -662,11 +694,15 @@ export async function createBoxTermination(
     const id = crypto.randomUUID();
     const guard = database.prepare("UPDATE conductors SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'")
       .bind(context.propertyId, conductor.id, input.revision);
+    const method = databaseTerminationMethod(input.terminationMethod ?? "unknown");
+    const certainty = databaseCertainty(input.certainty ?? "unknown");
     const insert = database.prepare("INSERT INTO conductor_ends (id, property_id, conductor_id, designation, electrical_node_id, termination_method, certainty) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .bind(id, context.propertyId, conductor.id, input.designation, input.nodeId, databaseTerminationMethod(input.terminationMethod ?? "unknown"), databaseCertainty(input.certainty ?? "unknown"));
-    await runGuardedBatch(context, guard, [insert], input.kind, id, conductor.revision + 1, { kind: "conductor", id: conductor.id }, "update");
+      .bind(id, context.propertyId, conductor.id, input.designation, input.nodeId, method, certainty);
+    const connect = database.prepare("INSERT INTO conductor_end_connections (id, property_id, wiring_configuration_id, conductor_end_id, electrical_node_id, termination_method, certainty, conductor_role, connection_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'connected')")
+      .bind(crypto.randomUUID(), context.propertyId, wiringConfiguration.id, id, input.nodeId, method, certainty, conductor.assignedRole ?? conductor.observedRole ?? "unknown");
+    await runGuardedBatch(context, guard, [insert, connect], input.kind, id, conductor.revision + 1, { kind: "conductor", id: conductor.id }, "update");
   }
-  return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+  return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
 }
 
 export async function removeBoxTermination(
@@ -676,12 +712,13 @@ export async function removeBoxTermination(
   id: string,
   revision: number,
 ) {
-  await requireOwnedProperty(context.identity, context.propertyId);
+  const wiringConfiguration = await requireEditableWiringConfiguration(context.identity, context.propertyId, context.wiringConfigurationId);
+  context.wiringConfigurationId = wiringConfiguration.id;
   await ownedBox(context.propertyId, boxId);
   if (await mutationAlreadyApplied(context)) {
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
-  const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId);
+  const model = await getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   const database = getSqliteConnection();
   const db = getDb();
 
@@ -691,20 +728,20 @@ export async function removeBoxTermination(
     const conductor = await requireConductorRevision(context.propertyId, end.conductorId, revision);
     const guard = database.prepare("UPDATE conductors SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'")
       .bind(context.propertyId, conductor.id, revision);
-    const remove = database.prepare("DELETE FROM conductor_ends WHERE property_id = ? AND id = ?").bind(context.propertyId, id);
+    const remove = database.prepare("DELETE FROM conductor_end_connections WHERE property_id = ? AND wiring_configuration_id = ? AND conductor_end_id = ?").bind(context.propertyId, wiringConfiguration.id, id);
     await runGuardedBatch(context, guard, [remove], kind, id, conductor.revision + 1, { kind: "conductor", id: conductor.id }, "archive");
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
 
   if (kind === "conductors") {
     const conductor = await requireConductorRevision(context.propertyId, id, revision);
     if (!model.conductors.some((item) => item.id === id)) throw new NotFoundError("Conductor is not terminated in this box.");
-    const attached = await db.query.conductorEnds.findFirst({ where: and(eq(schema.conductorEnds.propertyId, context.propertyId), eq(schema.conductorEnds.conductorId, id)) });
-    if (attached) throw new InvalidRequestError("Remove both A/B conductor ends before removing this conductor.");
-    const guard = database.prepare("UPDATE conductors SET lifecycle_state = 'archived', revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'")
+    const guard = database.prepare("UPDATE conductors SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'")
       .bind(context.propertyId, id, revision);
-    await runGuardedBatch(context, guard, [], kind, id, conductor.revision + 1, { kind: "conductor", id }, "archive");
-    return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+    const removeConnections = database.prepare("DELETE FROM conductor_end_connections WHERE property_id = ? AND wiring_configuration_id = ? AND conductor_end_id IN (SELECT id FROM conductor_ends WHERE property_id = ? AND conductor_id = ?)")
+      .bind(context.propertyId, wiringConfiguration.id, context.propertyId, id);
+    await runGuardedBatch(context, guard, [removeConnections], kind, id, conductor.revision + 1, { kind: "conductor", id }, "archive");
+    return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
   }
 
   const collection = kind === "terminals" ? model.terminals
@@ -714,7 +751,7 @@ export async function removeBoxTermination(
   if (!collection.some((item) => item.id === id)) throw new NotFoundError("Termination point is not in this box.");
   const node = await requireNodeRevision(context.propertyId, id, revision);
   const [attachedEnd, fromConnection, toConnection, source] = await Promise.all([
-    db.query.conductorEnds.findFirst({ where: and(eq(schema.conductorEnds.propertyId, context.propertyId), eq(schema.conductorEnds.electricalNodeId, id)) }),
+    db.query.conductorEndConnections.findFirst({ where: and(eq(schema.conductorEndConnections.propertyId, context.propertyId), eq(schema.conductorEndConnections.wiringConfigurationId, wiringConfiguration.id), eq(schema.conductorEndConnections.electricalNodeId, id), eq(schema.conductorEndConnections.connectionState, "connected")) }),
     db.query.internalConnections.findFirst({ where: and(eq(schema.internalConnections.propertyId, context.propertyId), eq(schema.internalConnections.fromNodeId, id)) }),
     db.query.internalConnections.findFirst({ where: and(eq(schema.internalConnections.propertyId, context.propertyId), eq(schema.internalConnections.toNodeId, id)) }),
     db.query.circuitSources.findFirst({ where: and(eq(schema.circuitSources.propertyId, context.propertyId), eq(schema.circuitSources.electricalNodeId, id)) }),
@@ -722,8 +759,10 @@ export async function removeBoxTermination(
   if (attachedEnd || fromConnection || toConnection || source) {
     throw new InvalidRequestError("Move or remove attached conductor ends and connections before removing this point.");
   }
-  const guard = database.prepare("UPDATE electrical_nodes SET lifecycle_state = 'archived', revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'")
+  const guard = database.prepare("UPDATE electrical_nodes SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE property_id = ? AND id = ? AND revision = ? AND lifecycle_state <> 'archived'")
     .bind(context.propertyId, id, revision);
-  await runGuardedBatch(context, guard, [], kind, id, node.revision + 1, { kind: "node", id }, "archive");
-  return getBoxTerminationModel(context.identity, context.propertyId, boxId);
+  const removeMembership = database.prepare("DELETE FROM wiring_configuration_nodes WHERE property_id = ? AND wiring_configuration_id = ? AND electrical_node_id = ?")
+    .bind(context.propertyId, wiringConfiguration.id, id);
+  await runGuardedBatch(context, guard, [removeMembership], kind, id, node.revision + 1, { kind: "node", id }, "archive");
+  return getBoxTerminationModel(context.identity, context.propertyId, boxId, context.wiringConfigurationId);
 }

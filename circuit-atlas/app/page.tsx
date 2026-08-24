@@ -1,7 +1,15 @@
 import { AppLink } from "@/lib/client/runtime-path";
 import { Cable, CircuitBoard, Lightbulb, Map, Plus } from "lucide-react";
+import { getRequestIdentity } from "@/lib/auth/identity";
+import { listProperties } from "@/db/repositories";
+import { HomeRedirect } from "./home-redirect";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const properties = await listProperties(await getRequestIdentity());
+  if (properties.length === 1) return <HomeRedirect destination={`/p/${encodeURIComponent(properties[0].id)}/map`} />;
+  if (properties.length > 1) return <HomeRedirect destination="/properties" />;
   return (
     <main className="onboarding-shell">
       <header className="onboarding-brand">

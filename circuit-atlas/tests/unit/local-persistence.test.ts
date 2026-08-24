@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { and, eq } from "drizzle-orm";
 import {
   closeDatabase,
   getDb,
@@ -21,7 +22,13 @@ import {
   searchProperty,
   previewOwnedPropertyImport,
   updateResource,
+  activateWiringConfiguration,
+  cloneWiringConfiguration,
+  compareWiringConfigurations,
+  listWiringConfigurations,
+  updateWiringConfiguration,
 } from "@/db/repositories";
+import * as schema from "@/db/schema";
 import {
   LocalPrivateFileStore,
   setPrivateFileStoreForTests,
@@ -46,6 +53,30 @@ afterEach(async () => {
 });
 
 describe("local persistence", () => {
+  it("clones, compares, and activates a wiring plan without changing its history", async () => {
+    const identity: RequestIdentity = { provider: "home-assistant", subject: "wiring-owner", externalUserId: "home-assistant:wiring-owner", email: null, displayName: "Wiring Owner", isLocalDevelopment: false };
+    const property = await createProperty(identity, { name: "Fictional wiring property" });
+    const [current] = await listWiringConfigurations(identity, property.id);
+    const db = getDb();
+    await db.insert(schema.electricalNodes).values({ id: "fictional-node", propertyId: property.id, kind: "terminal", label: "Fictional terminal" });
+    await db.insert(schema.conductors).values({ id: "fictional-conductor", propertyId: property.id, permanentCode: "COND-001", kind: "pigtail" });
+    await db.insert(schema.conductorEnds).values({ id: "fictional-end", propertyId: property.id, conductorId: "fictional-conductor", designation: "A", electricalNodeId: "fictional-node" });
+    await db.insert(schema.wiringConfigurationNodes).values({ propertyId: property.id, wiringConfigurationId: current.id, electricalNodeId: "fictional-node" });
+    await db.insert(schema.conductorEndConnections).values({ id: "fictional-connection", propertyId: property.id, wiringConfigurationId: current.id, conductorEndId: "fictional-end", electricalNodeId: "fictional-node", conductorRole: "traveler_1", connectionState: "connected" });
+
+    const plan = await cloneWiringConfiguration(identity, property.id, current.id, { name: "Smart-switch plan", status: "planned" });
+    await db.update(schema.conductorEndConnections).set({ connectionState: "spare", electricalNodeId: null }).where(and(eq(schema.conductorEndConnections.propertyId, property.id), eq(schema.conductorEndConnections.wiringConfigurationId, plan.id)));
+    const comparison = await compareWiringConfigurations(identity, property.id, current.id, plan.id);
+    expect(comparison.conductorEnds).toHaveLength(1);
+    expect(comparison.conductorEnds[0].after?.connectionState).toBe("spare");
+    expect(comparison.totalChanges).toBe(1);
+
+    await activateWiringConfiguration(identity, property.id, plan.id, { revision: plan.revision, expectedCurrentConfigurationId: current.id });
+    const configurations = await listWiringConfigurations(identity, property.id);
+    expect(configurations.find((item) => item.id === plan.id)?.status).toBe("current");
+    expect(configurations.find((item) => item.id === current.id)?.status).toBe("historical");
+    await expect(updateWiringConfiguration(identity, property.id, current.id, { revision: current.revision + 1, name: "Mutated history" })).rejects.toThrow(/read-only/i);
+  });
   it("creates the complete schema and preserves rows across a restart", () => {
     const first = getDb().$client;
     const count = first

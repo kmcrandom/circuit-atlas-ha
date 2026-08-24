@@ -7,11 +7,11 @@ const migrationPaths = readdirSync(new URL("../../drizzle/", import.meta.url))
   .filter((name) => name.endsWith(".sql"))
   .sort();
 
-function migratedDatabase() {
+function migratedDatabaseThrough(count = migrationPaths.length) {
   const database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");
 
-  for (const migrationPath of migrationPaths) {
+  for (const migrationPath of migrationPaths.slice(0, count)) {
     const migration = readFileSync(new URL(`../../drizzle/${migrationPath}`, import.meta.url), "utf8")
       .replaceAll("--> statement-breakpoint", "");
     database.exec(migration);
@@ -19,6 +19,8 @@ function migratedDatabase() {
 
   return database;
 }
+
+const migratedDatabase = () => migratedDatabaseThrough();
 
 function createTwoProperties(database) {
   database.exec(`
@@ -38,10 +40,58 @@ test("initial migration applies cleanly and contains no house-specific seed data
     WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
   `).get();
 
-  assert.equal(tables.count, 61);
+  assert.equal(tables.count, 65);
   assert.equal(database.prepare("SELECT count(*) AS count FROM properties").get().count, 0);
   assert.deepEqual(database.prepare("PRAGMA foreign_key_check").all(), []);
   assert.equal(database.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
+  database.close();
+});
+
+test("versioned wiring migration preserves the existing current topology", () => {
+  const database = migratedDatabaseThrough(2);
+  createTwoProperties(database);
+  database.exec(`
+    INSERT INTO electrical_nodes (id, property_id, kind, label, certainty)
+      VALUES ('node-legacy', 'property-1', 'terminal', 'Existing terminal', 'visually_observed');
+    INSERT INTO conductors (id, property_id, permanent_code, kind, assigned_role)
+      VALUES ('conductor-legacy', 'property-1', 'COND-001', 'pigtail', 'traveler_1');
+    INSERT INTO conductor_ends (id, property_id, conductor_id, designation, electrical_node_id, termination_method, certainty)
+      VALUES ('end-legacy', 'property-1', 'conductor-legacy', 'A', 'node-legacy', 'screw', 'test_verified');
+  `);
+  const migration = readFileSync(new URL("../../drizzle/0002_mean_husk.sql", import.meta.url), "utf8").replaceAll("--> statement-breakpoint", "");
+  database.exec(migration);
+  const current = database.prepare("SELECT id, status FROM wiring_configurations WHERE property_id = 'property-1'").get();
+  assert.equal(current.status, "current");
+  assert.deepEqual({ ...database.prepare("SELECT conductor_end_id, electrical_node_id, termination_method, certainty, conductor_role, connection_state FROM conductor_end_connections WHERE wiring_configuration_id = ?").get(current.id) }, {
+    conductor_end_id: "end-legacy",
+    electrical_node_id: "node-legacy",
+    termination_method: "screw",
+    certainty: "test_verified",
+    conductor_role: "traveler_1",
+    connection_state: "connected",
+  });
+  assert.equal(database.prepare("SELECT count(*) AS count FROM wiring_configuration_nodes WHERE wiring_configuration_id = ? AND electrical_node_id = 'node-legacy'").get(current.id).count, 1);
+  assert.deepEqual(database.prepare("PRAGMA foreign_key_check").all(), []);
+  database.close();
+});
+
+test("wiring configurations enforce one current record and explicit disconnected states", () => {
+  const database = migratedDatabase();
+  createTwoProperties(database);
+  database.exec("INSERT INTO wiring_configurations (id, property_id, name, status) VALUES ('configuration-current', 'property-1', 'Current wiring', 'current')");
+  assert.throws(() => database.exec("INSERT INTO wiring_configurations (id, property_id, name, status) VALUES ('configuration-second', 'property-1', 'Second current', 'current')"), /UNIQUE constraint failed/);
+  database.exec(`
+    INSERT INTO electrical_nodes (id, property_id, kind) VALUES ('configuration-node', 'property-1', 'terminal');
+    INSERT INTO conductors (id, property_id, permanent_code, kind) VALUES ('configuration-conductor', 'property-1', 'COND-001', 'pigtail');
+    INSERT INTO conductor_ends (id, property_id, conductor_id, designation, electrical_node_id) VALUES ('configuration-end', 'property-1', 'configuration-conductor', 'A', 'configuration-node');
+    INSERT INTO conductor_ends (id, property_id, conductor_id, designation, electrical_node_id) VALUES ('configuration-end-b', 'property-1', 'configuration-conductor', 'B', 'configuration-node');
+    INSERT INTO conductor_end_connections (id, property_id, wiring_configuration_id, conductor_end_id, connection_state)
+      VALUES ('configuration-connection', 'property-1', 'configuration-current', 'configuration-end', 'spare');
+  `);
+  assert.throws(() => database.exec(`
+    INSERT INTO conductor_end_connections (id, property_id, wiring_configuration_id, conductor_end_id, connection_state)
+      VALUES ('invalid-connected', 'property-1', 'configuration-current', 'configuration-end-b', 'connected');
+  `), /CHECK constraint failed/);
   database.close();
 });
 

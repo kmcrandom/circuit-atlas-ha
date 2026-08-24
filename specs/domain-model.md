@@ -4,6 +4,7 @@ Status: Approved, including the Home Assistant App storage and Cloudflare Access
 Companion to: `specs/product-spec.md`
 Implementation verified, including smart-device metadata: 2026-08-20
 Approved amendment: automatic hidden identifiers and structured bulb specifications (`sdd/automatic-location-codes`, 2026-08-23)
+Approved amendment: versioned wiring configurations (`sdd/property-navigation-and-layout`, 2026-08-24)
 
 ## 1. Modeling approach
 
@@ -90,7 +91,7 @@ Examples of functions include a switch channel, a receptacle half, a relay chann
 - `cable`: asset subtype, wiring method (`NM-B`, `UF-B`, `MC`, conduit, unknown, custom), raw jacket marking, insulated-conductor count, equipment-ground count, optional cable gauge, notes
 - `cable_end`: cable, end designation A/B, containing box or endpoint asset, optional box port, certainty
 - `conductor`: permanent code, parent cable when applicable, kind, observed insulation color, re-identification marking, optional gauge/material, observed or assigned role
-- `conductor_end`: conductor, end designation A/B, connected electrical node, termination method
+- `conductor_end`: durable conductor/end designation A/B identity; legacy node and termination columns remain as a migration-compatible current projection, while configuration-specific facts live in `configuration_conductor_end`
 
 Conductor kinds include:
 
@@ -126,18 +127,33 @@ Internal-connection types include:
 
 A conductor has exactly two modeled physical ends. Each end terminates at exactly one electrical node. Branching occurs at an electrical node, never in the middle of a cable. A splice node can have any number of conductor ends and represents their common electrical connection.
 
-### 2.8 Circuit assertions and derived results
+### 2.8 Versioned wiring configurations
+
+- `wiring_configuration`: property, name, lifecycle (`draft`, `planned`, `current`, `historical`), source configuration, captured/effective/finalized timestamps, summary, verification state, revision
+- `wiring_configuration_scope`: configuration plus an affected circuit, control group, box, or asset used for navigation and change summaries; scope metadata does not make the rest of the graph incoherent or implicitly shared
+- `configuration_conductor_end`: configuration, conductor end, electrical node, termination method, observed/assigned role, status (`connected`, `capped`, `spare`, `abandoned`, `repurposed`, `unknown`), notes
+- `configuration_node_use`: configuration and splice/open endpoint/bond/terminal participation needed to render the selected graph
+- `configuration_asset_mount`: configuration, installed device, box, gang position/span/rotation when installed equipment differs between configurations
+- configuration-scoped control memberships/links and manual circuit assertions
+
+Boxes, cables, conductors, permanent asset identities, product instances, terminal definitions, attachments, and evidence are durable physical or documentary records shared by stable identity. The relationships that say how those things are installed and electrically connected belong to a wiring configuration. This separation lets the same traveler conductor terminate on a dumb switch in a historical configuration and be capped or repurposed in the current smart-switch configuration without duplicating or deleting the conductor.
+
+Each property has exactly one current configuration. A new or migrated property receives a baseline current configuration. Cloning copies configuration-specific relationships while preserving references to the same physical records and records the source configuration. Finalized historical configurations are immutable; a correction creates a successor revision with an audit link. Activating a planned configuration occurs in one transaction: validate the candidate, finalize the displaced current configuration as historical, make the candidate current, and invalidate/recompute configuration-keyed derived results.
+
+Historical configurations may reference archived installed devices and their terminals. Asset lifecycle state describes whether a device is presently installed, but it does not erase its participation in a historical graph. Reversion is represented by cloning a historical configuration into a new planned configuration; it is never an in-place status flip of the historical record.
+
+### 2.9 Circuit assertions and derived results
 
 - `asset_circuit_assertion`: user-stated circuit membership for an asset/function, with status and evidence
-- `node_circuit_result`: cached graph-derived source membership and derivation metadata
-- `conductor_circuit_result`: cached graph-derived source membership and derivation metadata
+- `node_circuit_result`: wiring configuration, cached graph-derived source membership and derivation metadata
+- `conductor_circuit_result`: wiring configuration, cached graph-derived source membership and derivation metadata
 - `trace_gap`: explicit unresolved relationship between known topology sections
 
 Derived records are reproducible cache/results, not user-authored source-of-truth facts. Assertions are never discarded when the graph disagrees.
 
 Tracing from a source traverses conductors, splice nodes, fixed feed-throughs, and possible switch-contact states. It stops at loads, isolation, signal-only links, and grounding/bonding paths. Trace results record enough predecessor information for the UI to display the path and explain why an asset was included.
 
-### 2.9 Control relationships
+### 2.10 Control relationships
 
 - `control_group`: named coordination of one or more controller and load functions
 - `control_member`: control group, asset function, role, method, notes
@@ -164,16 +180,16 @@ Mechanical multi-way topology is not represented by a fixed `way_count` or separ
 
 The familiar labels three-way, four-way, or colloquial five-way are presentation metadata and reusable presets. They do not impose a maximum or select a different persistence model. Circuit tracing evaluates the generic contact graph and the union of valid contact states, so arbitrary `n`-way arrangements use the same algorithm.
 
-### 2.10 Upgrade planning
+### 2.11 Upgrade planning
 
 - `upgrade_item`: target box/function/asset, status, goal, priority, notes
 - `upgrade_requirement`: neutral, ground, line/load identity, box capacity, multi-way role, load compatibility, protocol, hub, or custom requirement
 - `upgrade_observation`: requirement, known value, certainty, evidence
 - `proposed_product`: upgrade item and product model/freeform candidate
 
-Upgrade records point to the current installed topology but do not mutate it. Completion creates or associates a new installed-product record and archives the displaced instance.
+Upgrade records point to the current installed topology but do not mutate it. A wiring-changing upgrade may own or reference a planned wiring configuration. Completion creates or associates a new installed-product record, archives the displaced instance, and activates the verified planned configuration in one explicit workflow.
 
-### 2.11 Evidence and history
+### 2.12 Evidence and history
 
 - `evidence`: method, date, observer, notes, confidence/status
 - `evidence_link`: evidence to fact, relationship, or asset
@@ -195,6 +211,9 @@ Cable -> Conductors -> Conductor Ends -> Nodes <- Terminals/Splices/Open Ends
                                              |
                                              +-> Control Groups <-> Loads
 
+              Wiring Configuration -> configuration-specific terminations,
+                                      mounts, assertions, and control links
+
 Floor Plan -> Placements -> Boxes / Fixtures / Panels / Appliances
 
 Installed State -> Upgrade Item -> Proposed Product
@@ -211,7 +230,7 @@ Arrows show data relationships, not current flow or hidden cable routes.
 - Every property-owned relationship connects records from the same property.
 - A cable has exactly two end slots, A and B; an unknown end is an explicit unresolved endpoint rather than a missing row.
 - A conductor has exactly two end slots, A and B.
-- A conductor end connects to exactly one electrical node.
+- A conductor end has at most one assignment in a wiring configuration and connects to exactly one electrical node when that assignment is connected; capped, spare, abandoned, repurposed, and unknown states remain explicit.
 - A cable-contained conductor's endpoint boxes agree with its parent cable's endpoint boxes when both are known.
 - Terminals, splices, bond points, and local open ends are contained by one box or endpoint asset.
 - An installed device cannot overlap another mount unless its explicit gang span permits it.
@@ -220,6 +239,10 @@ Arrows show data relationships, not current flow or hidden cable routes.
 - Installed-device details belong to exactly one property and one installed-product instance; replacing a product never automatically copies unit-unique identifiers or secrets to its replacement.
 - Secret detail values are excluded from search indexes, URL state, change-event summaries, analytics, logs, and general asset/list view models. They are fetched only through an authenticated property-scoped detail boundary and are masked by default in the client.
 - Light-source actual wattage, equivalent wattage, and lumens are optional non-negative observations; kelvin values are optional and positive when present. If both supported color-temperature bounds are known, the maximum is greater than or equal to the minimum. These fields belong to the installed light source at one holder position, not to the fixture as an undifferentiated total.
+- Every property has exactly one current wiring configuration; draft, planned, and historical configurations never affect default current graph queries.
+- A finalized historical wiring configuration and its topology relationships are immutable. Corrections create a successor revision and retain an audit link to the superseded history.
+- Configuration cloning preserves physical-record UUIDs, duplicates only configuration-specific relationships, and never copies a unit-unique installed-device identifier onto a replacement product.
+- Configuration activation validates and changes the planned/current/historical statuses atomically and keys all invalidated graph-result caches by configuration.
 
 ### Non-blocking consistency warnings
 
@@ -263,6 +286,7 @@ Initial presets should include:
 - All property queries require an explicit property scope; no query relies on a hard-coded default house identifier.
 - Common breaker-first, asset-first, room, box, and graph traversal entry points receive indexes based on their actual queries.
 - Graph-result caches are invalidated when a conductor end, node, terminal, internal connection, circuit source, or relevant assertion changes.
+- Upgrading an existing `0.2.x` installation creates one baseline current wiring configuration per property and associates every existing termination, mount, assertion, and control relationship without deleting or semantically changing it.
 - Authentication accepts either trusted Home Assistant ingress identity or a cryptographically verified Cloudflare Access application JWT. Both paths map to the one installation workspace so the same properties are visible through the Home Assistant sidebar and the protected public hostname; the authenticated provider/subject remains available for change attribution. Requests without a trusted identity fail closed in production, except for a non-sensitive health endpoint. Local development uses an explicit development identity only outside production.
 
 Exact table columns, migrations, and indexes are defined during the implementation-plan phase after this conceptual model is approved.

@@ -6,5 +6,6 @@ export * from "./aggregates";
 export * from "./files";
 export * from "./floor-plans";
 export * from "./box-termination";
+export * from "./wiring-configurations";
 export * from "./portability";
 export * from "./device-details";

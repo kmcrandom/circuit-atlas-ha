@@ -158,6 +158,7 @@ export interface BoxConductorEndRecord {
   designation: "A" | "B";
   /** A terminal, splice, open endpoint, or bond point electrical node ID. */
   nodeId?: string | null;
+  connectionState: "connected" | "capped" | "spare" | "abandoned" | "repurposed" | "unknown";
   terminationMethod: BoxTerminationMethod;
   certainty?: BoxTerminationCertainty;
   notes?: string;
@@ -232,6 +233,7 @@ export type BoxTerminationChange =
       id: string;
       field:
         | "nodeId"
+        | "connectionState"
         | "terminationMethod"
         | "certainty";
     };

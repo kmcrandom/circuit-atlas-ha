@@ -13,10 +13,10 @@ import { createTerminationSchema } from "./_schemas";
 
 type Params = { params: Promise<{ propertyId: string; boxId: string }> };
 
-export async function GET(_request: Request, context: Params) {
+export async function GET(request: Request, context: Params) {
   const { propertyId, boxId } = await routeParams(context.params);
   return readRoute(async (identity) => ({
-    termination: await getBoxTerminationModel(identity, propertyId, boxId),
+    termination: await getBoxTerminationModel(identity, propertyId, boxId, new URL(request.url).searchParams.get("configurationId")),
   }));
 }
 
@@ -27,7 +27,7 @@ export async function POST(request: Request, context: Params) {
     const { requestId, ...values } = input;
     return {
       termination: await createBoxTermination(
-        { identity, propertyId, requestId },
+        { identity, propertyId, requestId, wiringConfigurationId: new URL(request.url).searchParams.get("configurationId") },
         boxId,
         values,
       ),

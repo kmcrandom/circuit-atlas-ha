@@ -128,6 +128,7 @@ type PortableTableDefinition = {
 const PORTABLE_TABLES: readonly PortableTableDefinition[] = [
   { kind: "property_code_counters", table: dbs.propertyCodeCounters },
   { kind: "property_revisions", table: dbs.propertyRevisions },
+  { kind: "wiring_configurations", table: dbs.wiringConfigurations },
   { kind: "evidence", table: dbs.evidence },
   { kind: "structures", table: dbs.structures },
   { kind: "levels", table: dbs.levels },
@@ -164,11 +165,13 @@ const PORTABLE_TABLES: readonly PortableTableDefinition[] = [
   { kind: "cable_ends", table: dbs.cableEnds },
   { kind: "conductors", table: dbs.conductors },
   { kind: "electrical_nodes", table: dbs.electricalNodes },
+  { kind: "wiring_configuration_nodes", table: dbs.wiringConfigurationNodes },
   { kind: "terminals", table: dbs.terminals },
   { kind: "splices", table: dbs.splices },
   { kind: "open_endpoints", table: dbs.openEndpoints },
   { kind: "bond_points", table: dbs.bondPoints },
   { kind: "conductor_ends", table: dbs.conductorEnds },
+  { kind: "conductor_end_connections", table: dbs.conductorEndConnections },
   { kind: "internal_connections", table: dbs.internalConnections },
   { kind: "circuit_sources", table: dbs.circuitSources },
   { kind: "shared_neutral_groups", table: dbs.sharedNeutralGroups },
@@ -178,6 +181,7 @@ const PORTABLE_TABLES: readonly PortableTableDefinition[] = [
   { kind: "control_groups", table: dbs.controlGroups },
   { kind: "control_members", table: dbs.controlMembers },
   { kind: "control_links", table: dbs.controlLinks },
+  { kind: "wiring_configuration_scopes", table: dbs.wiringConfigurationScopes },
   { kind: "upgrade_items", table: dbs.upgradeItems },
   { kind: "upgrade_requirements", table: dbs.upgradeRequirements },
   { kind: "upgrade_observations", table: dbs.upgradeObservations },
@@ -198,6 +202,7 @@ const ATTACHMENT_OWNER_TABLE: Readonly<Record<string, string>> = {
 };
 const MAX_IMPORT_RECORDS = 800;
 const MAX_IMPORT_ATTACHMENT_BYTES = 64 * 1024 * 1024;
+const CONFIGURATION_SCOPED_PORTABLE_KINDS = new Set(["asset_mounts", "asset_mount_positions", "asset_circuit_assertions", "trace_gaps", "control_members", "control_links"]);
 
 function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
@@ -1080,6 +1085,19 @@ export async function applyOwnedPropertyImport(
       );
     }
 
+    const hasImportedConfigurations = manifest.records.some((record) => record.kind === "wiring_configurations");
+    let synthesizedConfigurationId: string | null = null;
+    if (!hasImportedConfigurations) {
+      if (mode === "merge") {
+        const current = await binding.prepare("SELECT id FROM wiring_configurations WHERE property_id = ? AND status = 'current' LIMIT 1").bind(propertyId).first<{ id: string }>();
+        synthesizedConfigurationId = current?.id ?? null;
+      }
+      if (!synthesizedConfigurationId) {
+        synthesizedConfigurationId = crypto.randomUUID();
+        statements.push(binding.prepare("INSERT INTO wiring_configurations (id, property_id, name, status, effective_at) VALUES (?, ?, 'Imported current wiring', 'current', CURRENT_TIMESTAMP)").bind(synthesizedConfigurationId, propertyId));
+      }
+    }
+
     for (const attachment of staged) {
       statements.push(insertStatement(binding, "attachments", attachment.row));
     }
@@ -1099,6 +1117,14 @@ export async function applyOwnedPropertyImport(
           throw new ConflictError(`Record ${record.id} cannot be imported.`);
         }
         const row = rowForImport(definition, record, propertyId);
+        if (synthesizedConfigurationId && CONFIGURATION_SCOPED_PORTABLE_KINDS.has(definition.kind) && row.wiring_configuration_id == null) {
+          row.wiring_configuration_id = synthesizedConfigurationId;
+        }
+        if (mode === "merge" && definition.kind === "wiring_configurations" && action === "create" && row.status === "current") {
+          row.status = "planned";
+          row.name = `${String(row.name ?? "Imported wiring")} (imported plan)`;
+          row.effective_at = null;
+        }
         const spatialKind = record.kind in SPATIAL_IMPORT_KINDS
           ? record.kind as SpatialImportKind
           : null;
