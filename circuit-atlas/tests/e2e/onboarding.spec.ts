@@ -124,3 +124,36 @@ test("creates named locations without codes and stores structured bulb specifica
     dimmable: true,
   });
 });
+
+test("primary settings actions retain legible text before and during hover", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/properties?new=1");
+  const propertyName = page.getByLabel("Property name");
+  const addProperty = page.getByRole("button", { name: "Add property" });
+  await expect(propertyName.or(addProperty)).toBeVisible();
+  if (await addProperty.isVisible()) await addProperty.click();
+  await propertyName.fill(`Contrast test ${testInfo.project.name}`);
+  await page.getByRole("button", { name: "Create property" }).click();
+  await expect(page).toHaveURL(/\/p\/[^/]+\/map$/);
+
+  const propertyId = new URL(page.url()).pathname.split("/")[2];
+  await page.goto(`/p/${encodeURIComponent(propertyId)}/settings`);
+
+  const actions = [
+    page.getByRole("link", { name: "Open map" }).first(),
+    page.getByRole("button", { name: "Save details" }),
+    page.getByRole("button", { name: "Create structure" }),
+    page.getByRole("button", { name: "Create level" }),
+    page.getByRole("button", { name: "Create room or space" }),
+  ];
+
+  for (const action of actions) {
+    await expect(action).toBeVisible();
+    await expect(action).toHaveCSS("color", "rgb(255, 255, 255)");
+  }
+
+  const saveDetails = page.getByRole("button", { name: "Save details" });
+  await saveDetails.hover();
+  await expect(saveDetails).toHaveCSS("color", "rgb(255, 255, 255)");
+});
