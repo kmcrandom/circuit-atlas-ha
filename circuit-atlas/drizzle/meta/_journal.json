@@ -15,6 +15,13 @@
       "when": 1787498898174,
       "tag": "0001_chief_northstar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787584947963,
+      "tag": "0002_mean_husk",
+      "breakpoints": true
     }
   ]
 }

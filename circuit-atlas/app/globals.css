@@ -515,14 +515,13 @@ a {
 
 .property-card-open {
   align-items: center;
-  bottom: 20px;
   color: var(--blue);
   display: flex;
   font-size: 12px;
   font-weight: 650;
   gap: 7px;
-  position: absolute;
-  right: 22px;
+  justify-content: flex-end;
+  margin-top: 22px;
 }
 
 .new-property-card {

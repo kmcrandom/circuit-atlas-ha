@@ -5,6 +5,7 @@ Branch: `sdd/home-assistant-app`
 Date: 2026-08-13
 Implementation verified, including smart-device metadata: 2026-08-20
 Approved amendment: automatic hidden identifiers and structured bulb specifications (`sdd/automatic-location-codes`, 2026-08-23)
+Approved amendment: property entry/navigation, property-card layout, and versioned wiring configurations (`sdd/property-navigation-and-layout`, 2026-08-24)
 
 ## 1. Purpose
 
@@ -61,6 +62,14 @@ Primary navigation contains:
 - **Upgrade Plan** — current smart/dumb state, candidates, requirements, and proposed replacements
 
 A property selector is always available above the primary navigation and makes the currently active house unambiguous.
+
+Opening Circuit Atlas at its root route is state-aware:
+
+- with no saved properties, it shows first-run onboarding and the “Create your first property” action;
+- with exactly one saved property, it opens that property directly;
+- with more than one saved property, it opens the property chooser.
+
+The first-run call to action must not appear as the primary root-route outcome after a property exists. The property chooser presents each property as one coherent, responsive card. Its statistics and “Open atlas” affordance must remain visually distinct and must not overlap at any supported viewport width, content length, or count width.
 
 A global search finds records by permanent ID, locator label, display name, room, breaker, manufacturer, model, smart protocol, or notes.
 
@@ -180,6 +189,25 @@ For a proposed smart-switch, smart-relay, smart-receptacle, or smart-light upgra
 - missing or conflicting facts.
 
 The planned product and notes remain separate from the currently installed product. Installing a replacement archives the prior installed instance and preserves the box, conductors, history, and prior observations.
+
+### 5.7 Versioned wiring configurations
+
+Wiring changes never require overwriting the only record of an earlier termination layout. Each property has named wiring configurations with a lifecycle of `draft`, `planned`, `current`, or `historical`. Exactly one configuration is current. A configuration describes a coherent property-wide electrical graph while recording the circuits, control groups, boxes, and devices that motivated the change so the user can find a small upgrade without treating it as a whole-house project.
+
+The physical inventory remains shared across configurations: boxes, cables, conductors, permanent asset identities, photos, and observed markings are not duplicated merely because a switch is replaced. Configuration-specific relationships include conductor-end terminations, mounted-device participation where equipment changed, splices/open endpoints used by those terminations, control membership/links, circuit assertions, and the graph-derived results calculated from them. Historical diagrams may reference archived dumb switches and their terminals; the current configuration may reference replacement smart devices in the same box.
+
+The supported upgrade workflow is:
+
+1. Capture and verify the existing configuration, including conductor colors/reidentification, terminal labels, traveler roles, splices, caps, gang positions, notes, and evidence photos.
+2. Clone the current configuration into a planned configuration before editing the proposed smart-switch wiring.
+3. Edit and validate the planned configuration without changing breaker-first, asset-first, or wiring results for the current configuration.
+4. Activate the planned configuration after the physical change. Activation atomically makes it current and finalizes the displaced current configuration as historical.
+5. Mark conductors that are unused in the new configuration as capped, spare, abandoned, repurposed, or unknown without deleting the conductor or its earlier role.
+6. To document a possible return to dumb switches, clone the historical configuration into a new planned configuration. The application does not silently reactivate or mutate the historical record.
+
+Historical configurations are immutable once finalized, except through an explicit correction that creates a successor revision and audit note. Planned and draft configurations may be edited or discarded. The wiring workspace provides a configuration selector, clearly labels non-current views, renders historical box and topology diagrams, and can compare two configurations to show added, removed, or changed devices, terminations, conductor roles, splices, and control relationships. Current is always the default for search, tracing, breaker membership, inventory summaries, and floor-plan highlights unless the user explicitly selects another configuration.
+
+Configuration activation is a documentation action, not an instruction to energize equipment or an assertion that field work is safe or code-compliant. It requires explicit confirmation and records date, notes, and verification status.
 
 ## 6. Naming and identification convention
 
@@ -354,11 +382,13 @@ Deletion is archival by default. Referenced objects cannot be permanently remove
 - Sensitive commissioning details are returned only by authenticated, property-scoped detail requests; summary, search, trace, and floor-plan responses omit their values.
 - Sensitive values are masked by default in the interface and are never placed in URL state, analytics, or application logs.
 - The application provides a complete versioned JSON export containing structured records and references to exported assets.
+- Complete export/import preserves wiring configurations, their ancestry/status, archived-device references, configuration-specific topology, and evidence without changing which configuration is current.
 - Complete exports include smart-device identifiers and commissioning secrets so they can serve as backups, but the export flow warns that the downloaded file contains sensitive access/commissioning information.
 - The application can import its own export format with validation and a preview before applying changes.
 - Destructive replacement imports are not part of the initial release; import adds or merges only after explicit confirmation.
 - Home Assistant backups may preserve the app's `/data` volume, but Circuit Atlas exports remain the documented application-level, deployment-independent backup format.
 - No existing D1/R2 database or upload migration is required for the first Home Assistant release because the application has not entered use. The Home Assistant installation starts from an empty schema and onboarding flow.
+- The wiring-configuration migration must preserve an installed `0.2.x` database by creating one baseline current configuration per existing property and associating its existing topology with that configuration; it must not discard or reinterpret existing connections.
 
 ## 12. Validation behavior
 
@@ -375,6 +405,9 @@ Hard errors include:
 - duplicate permanent IDs within a property;
 - duplicate generated spatial codes within the applicable property/parent scope;
 - any relationship that crosses property boundaries.
+- more or less than one current wiring configuration for a property;
+- editing a finalized historical configuration in place;
+- activating a configuration that contains cross-property relationships or structurally invalid conductor-end assignments.
 
 Warnings that do not block saving include:
 
@@ -451,6 +484,12 @@ The application does not:
 22. Ordinary forms, selectors, cards, and search results do not expose structure, level, space, or wall/zone codes, and a rename, reorder, or move does not regenerate them. Ordinary property and upgrade-plan views likewise omit their generated administrative codes.
 23. Complete export/import preserves valid spatial codes and relationships; a conflicting imported spatial code is safely remapped without requiring user intervention.
 24. Each bulb or integrated light engine can independently record actual watts, equivalent watts, lumens, fixed/nominal color temperature or supported temperature bounds, color capability, and smart/dumb state; complete export/import preserves those values.
+25. Opening Circuit Atlas routes a single-property workspace directly into that property, routes a multi-property workspace to the chooser, and shows first-run onboarding only when no property exists.
+26. Property chooser cards keep the “Open atlas” affordance separate from Panels, Circuits, and Assets statistics without overlap on desktop or phone layouts.
+27. A user can preserve a verified dumb multi-way configuration, create and activate a smart-switch configuration, and continue viewing the original traveler topology and archived dumb devices afterward.
+28. Unused travelers remain identifiable physical conductors in the current configuration with an explicit capped/spare/abandoned/repurposed/unknown state, while their earlier traveler terminations remain visible in history.
+29. Draft or planned wiring edits do not change current breaker, asset, search, map, or trace results until explicit activation; activation archives the displaced current configuration atomically.
+30. A historical configuration can be cloned into a new planned reversion configuration without mutating history, and complete export/import preserves every configuration and the current selection.
 
 Implementation verified for acceptance criteria 21–24 on 2026-08-23.
 
@@ -477,6 +516,12 @@ The implementation must include automated or fixture-based tests for:
 - a Hue light with manufacturer/model, MAC address, setup code, Matter ID, bridge association, and firmware;
 - an Inovelli switch with manufacturer/model, Zigbee IEEE address, firmware, hardware revision, hub association, and an arbitrary custom field;
 - secret setup-code masking plus complete authenticated export/import preservation.
+- root-route behavior with zero, one, and multiple fictional properties;
+- property cards with long names, long addresses, and wide statistic values at desktop and phone widths, including non-overlap between “Open atlas” and the Assets statistic.
+- a conventional four-switch multi-way arrangement captured as current, cloned and converted to a smart/aux arrangement with obsolete travelers capped, then activated while the original remains renderable;
+- a historical dumb-switch configuration cloned as a planned reversion, edited independently, and compared with the current smart configuration;
+- migration of fictional `0.2.x` topology into one baseline current configuration without losing conductor ends, terminals, splices, assertions, or control relationships;
+- complete export/import of current, historical, and planned configurations with archived-device references and evidence.
 
 ## 18. Deferred decisions
 

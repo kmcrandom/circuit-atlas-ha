@@ -25,6 +25,7 @@ import {
 } from "./topology";
 import { NotFoundError } from "@/lib/http/responses";
 import { decodeAssetNotes } from "./aggregates";
+import { resolveWiringConfiguration } from "./wiring-configurations";
 
 function verification(value: string | null | undefined) {
   if (value === "visually_observed") return "observed" as const;
@@ -83,7 +84,7 @@ export async function inventoryViewModels(
   identity: RequestIdentity,
   propertyId: string,
 ): Promise<{ items: Array<InventoryAsset & { revision: number }>; locations: LocationOption[] }> {
-  await requireOwnedProperty(identity, propertyId);
+  const wiringConfiguration = await resolveWiringConfiguration(identity, propertyId);
   const db = getDb();
   const [assetRows, deviceRows, fixtureRows, applianceRows, lightRows, holderRows, locationRows, installedRows, assertionRows, sourceRows, poleRows, breakerRows, panelAssets, upgradeRows, mountRows] = await Promise.all([
     db.select().from(dbs.assets).where(and(eq(dbs.assets.propertyId, propertyId), ne(dbs.assets.lifecycleState, "archived"))).orderBy(asc(dbs.assets.displayName)),
@@ -94,13 +95,13 @@ export async function inventoryViewModels(
     db.select().from(dbs.lampHolders).where(eq(dbs.lampHolders.propertyId, propertyId)),
     db.select().from(dbs.assetLocations).where(eq(dbs.assetLocations.propertyId, propertyId)),
     db.select().from(dbs.installedProducts).where(and(eq(dbs.installedProducts.propertyId, propertyId), ne(dbs.installedProducts.lifecycleState, "archived"))),
-    db.select().from(dbs.assetCircuitAssertions).where(and(eq(dbs.assetCircuitAssertions.propertyId, propertyId), eq(dbs.assetCircuitAssertions.status, "active"))),
+    db.select().from(dbs.assetCircuitAssertions).where(and(eq(dbs.assetCircuitAssertions.propertyId, propertyId), eq(dbs.assetCircuitAssertions.wiringConfigurationId, wiringConfiguration.id), eq(dbs.assetCircuitAssertions.status, "active"))),
     db.select().from(dbs.circuitSources).where(eq(dbs.circuitSources.propertyId, propertyId)),
     db.select().from(dbs.breakerPoles).where(eq(dbs.breakerPoles.propertyId, propertyId)),
     db.select().from(dbs.breakers).where(eq(dbs.breakers.propertyId, propertyId)),
     db.select().from(dbs.assets).where(and(eq(dbs.assets.propertyId, propertyId), eq(dbs.assets.kind, "panel"))),
     db.select().from(dbs.upgradeItems).where(eq(dbs.upgradeItems.propertyId, propertyId)),
-    db.select().from(dbs.assetMounts).where(eq(dbs.assetMounts.propertyId, propertyId)),
+    db.select().from(dbs.assetMounts).where(and(eq(dbs.assetMounts.propertyId, propertyId), eq(dbs.assetMounts.wiringConfigurationId, wiringConfiguration.id))),
   ]);
   const locations = await locationViewModels(identity, propertyId);
   const locationLabelById = new Map(locations.options.map((row) => [row.id, row.label]));
@@ -325,7 +326,8 @@ export async function circuitWorkspaceViewModel(
   return { panels, breakers: breakerSummaries, connectedAssetsByBreaker };
 }
 
-export async function boxDetailViewModel(identity: RequestIdentity, propertyId: string, boxId: string) {
+export async function boxDetailViewModel(identity: RequestIdentity, propertyId: string, boxId: string, configurationId?: string | null) {
+  const wiringConfiguration = await resolveWiringConfiguration(identity, propertyId, configurationId);
   const inventory = await inventoryViewModels(identity, propertyId);
   const item = inventory.items.find((asset) => asset.id === boxId && asset.kind === "box");
   if (!item) throw new NotFoundError("Box not found.");
@@ -333,7 +335,7 @@ export async function boxDetailViewModel(identity: RequestIdentity, propertyId: 
   const [box, ports, mounts, cableEndRows, cableAssetRows, cableRows, mountedAssets] = await Promise.all([
     db.query.boxes.findFirst({ where: and(eq(dbs.boxes.propertyId, propertyId), eq(dbs.boxes.assetId, boxId)) }),
     db.select().from(dbs.boxPorts).where(and(eq(dbs.boxPorts.propertyId, propertyId), eq(dbs.boxPorts.boxAssetId, boxId))),
-    db.select().from(dbs.assetMounts).where(and(eq(dbs.assetMounts.propertyId, propertyId), eq(dbs.assetMounts.boxAssetId, boxId))),
+    db.select().from(dbs.assetMounts).where(and(eq(dbs.assetMounts.propertyId, propertyId), eq(dbs.assetMounts.wiringConfigurationId, wiringConfiguration.id), eq(dbs.assetMounts.boxAssetId, boxId))),
     db.select().from(dbs.cableEnds).where(and(eq(dbs.cableEnds.propertyId, propertyId), eq(dbs.cableEnds.boxAssetId, boxId))),
     db.select().from(dbs.assets).where(and(eq(dbs.assets.propertyId, propertyId), eq(dbs.assets.kind, "cable"))),
     db.select().from(dbs.cables).where(eq(dbs.cables.propertyId, propertyId)),
@@ -371,7 +373,7 @@ export async function boxDetailViewModel(identity: RequestIdentity, propertyId: 
       detail: port.notes ?? undefined,
     })),
   };
-  const topology = await loadElectricalTopology(identity, propertyId);
+  const topology = await loadElectricalTopology(identity, propertyId, wiringConfiguration.id);
   const nodeIds = topology.nodes.filter((node) => node.containingBoxId === boxId).map((node) => node.id);
   return {
     item,
@@ -382,7 +384,7 @@ export async function boxDetailViewModel(identity: RequestIdentity, propertyId: 
       conductorEnds: topology.conductorEnds.filter((end) => nodeIds.includes(end.nodeId)),
       internalConnections: topology.internalConnections.filter((connection) => nodeIds.includes(connection.fromNodeId) || nodeIds.includes(connection.toNodeId)),
     },
-    power: await topologyEntityCircuitLookup(identity, propertyId, { kind: "box", id: boxId }),
+    power: await topologyEntityCircuitLookup(identity, propertyId, { kind: "box", id: boxId }, wiringConfiguration.id),
   };
 }
 

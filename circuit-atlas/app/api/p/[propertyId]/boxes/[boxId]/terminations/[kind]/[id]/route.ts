@@ -30,7 +30,7 @@ export async function PATCH(request: Request, context: Params) {
     const kind = terminationKind(rawKind);
     return {
       termination: await patchBoxTermination(
-        { identity, propertyId, requestId: input.requestId },
+        { identity, propertyId, requestId: input.requestId, wiringConfigurationId: new URL(request.url).searchParams.get("configurationId") },
         boxId,
         id,
         input.revision,
@@ -46,7 +46,7 @@ export async function DELETE(request: Request, context: Params) {
     const input = await parsedJson(request, removeTerminationSchema);
     return {
       termination: await removeBoxTermination(
-        { identity, propertyId, requestId: input.requestId },
+        { identity, propertyId, requestId: input.requestId, wiringConfigurationId: new URL(request.url).searchParams.get("configurationId") },
         boxId,
         terminationKind(rawKind),
         id,

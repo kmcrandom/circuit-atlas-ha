@@ -15,6 +15,7 @@ import {
 } from "@/lib/http/responses";
 
 import { nextPropertyCode } from "./core";
+import { requireEditableWiringConfiguration } from "./wiring-configurations";
 import { requireOwnedProperty } from "./workspaces";
 
 const knowledgeSchema = z.enum([
@@ -526,6 +527,8 @@ export type CaptureMaterializationRows = {
   openEndpoints: Array<typeof s.openEndpoints.$inferInsert>;
   bondPoints: Array<typeof s.bondPoints.$inferInsert>;
   conductorEnds: Array<typeof s.conductorEnds.$inferInsert>;
+  configurationNodes: Array<typeof s.wiringConfigurationNodes.$inferInsert>;
+  conductorEndConnections: Array<typeof s.conductorEndConnections.$inferInsert>;
   materialization: CaptureMaterialization;
 };
 
@@ -533,12 +536,13 @@ export type CaptureMaterializationRows = {
 export async function buildCaptureMaterializationRows(input: {
   propertyId: string;
   draftId: string;
+  wiringConfigurationId: string;
   draft: CaptureDraftPayload;
   existingBoxAssetId?: string | null;
   codes: MaterializationCodebook;
   idFactory?: (kind: string, localId: string) => Promise<string>;
 }): Promise<CaptureMaterializationRows> {
-  const { propertyId, draftId, draft, codes } = input;
+  const { propertyId, draftId, draft, codes, wiringConfigurationId } = input;
   const idFor = input.idFactory ?? ((kind: string, localId: string) => stableCaptureUuid(draftId, kind, localId));
   const boxAssetId = input.existingBoxAssetId ?? await idFor("asset", "box");
   const boxCode = codes.box;
@@ -595,6 +599,7 @@ export async function buildCaptureMaterializationRows(input: {
       mounts.push({
         id: mountId,
         propertyId,
+        wiringConfigurationId,
         boxAssetId,
         mountedAssetId: assetId,
         startGangIndex: device.gangIndex,
@@ -603,7 +608,7 @@ export async function buildCaptureMaterializationRows(input: {
         faceLabel: device.displayName,
       });
       for (let gang = device.gangIndex; gang < device.gangIndex + span; gang += 1) {
-        mountPositions.push({ propertyId, mountId, boxAssetId, gangIndex: gang });
+        mountPositions.push({ propertyId, wiringConfigurationId, mountId, boxAssetId, gangIndex: gang });
       }
     }
   }
@@ -682,6 +687,7 @@ export async function buildCaptureMaterializationRows(input: {
   const openEndpoints: CaptureMaterializationRows["openEndpoints"] = [];
   const bondPoints: CaptureMaterializationRows["bondPoints"] = [];
   const conductorEnds: CaptureMaterializationRows["conductorEnds"] = [];
+  const conductorEndConnections: CaptureMaterializationRows["conductorEndConnections"] = [];
   const conductorIds: string[] = [];
   const coreIndexes = new Map<string, number>();
   const sharedNodes = new Map<string, string>();
@@ -753,14 +759,27 @@ export async function buildCaptureMaterializationRows(input: {
           });
         }
       }
+      const conductorEndId = await idFor("conductor-end", `${conductor.id}:${end.designation}`);
       conductorEnds.push({
-        id: await idFor("conductor-end", `${conductor.id}:${end.designation}`),
+        id: conductorEndId,
         propertyId,
         conductorId,
         designation: end.designation.toUpperCase() as "A" | "B",
         electricalNodeId: nodeId,
         terminationMethod: end.terminationType === "cap-open" ? "open" : "unknown",
         certainty: knowledge(end.certainty),
+        notes: end.destinationLabel ? details({ destinationLabel: end.destinationLabel }) : null,
+      });
+      conductorEndConnections.push({
+        id: await idFor("conductor-end-connection", `${conductor.id}:${end.designation}`),
+        propertyId,
+        wiringConfigurationId,
+        conductorEndId,
+        electricalNodeId: nodeId,
+        terminationMethod: end.terminationType === "cap-open" ? "open" : "unknown",
+        certainty: knowledge(end.certainty),
+        conductorRole: role.role ?? "unknown",
+        connectionState: "connected",
         notes: end.destinationLabel ? details({ destinationLabel: end.destinationLabel }) : null,
       });
     }
@@ -786,6 +805,8 @@ export async function buildCaptureMaterializationRows(input: {
     openEndpoints,
     bondPoints,
     conductorEnds,
+    configurationNodes: nodes.map((node) => ({ propertyId, wiringConfigurationId, electricalNodeId: node.id })),
+    conductorEndConnections,
     materialization: {
       boxAssetId,
       boxPermanentCode: boxCode,
@@ -879,7 +900,8 @@ export async function finishCaptureDraft(
     if (!asset || !detail || asset.kind !== "device") throw new InvalidRequestError("A captured mounted device is not an active device in this property.");
   }
   const codes = await reserveCodes(context.identity, context.propertyId, draft, existingBoxCode);
-  const rows = await buildCaptureMaterializationRows({ propertyId: context.propertyId, draftId: id, draft, existingBoxAssetId: targetId, codes });
+  const wiringConfiguration = await requireEditableWiringConfiguration(context.identity, context.propertyId);
+  const rows = await buildCaptureMaterializationRows({ propertyId: context.propertyId, wiringConfigurationId: wiringConfiguration.id, draftId: id, draft, existingBoxAssetId: targetId, codes });
   const statements: AtomicStatement[] = [];
   // SQLite treats an UPDATE matching zero rows as successful. This first
   // SELECT deliberately raises a JSON1 error if
@@ -945,6 +967,8 @@ export async function finishCaptureDraft(
   if (rows.openEndpoints.length) pushInsert(statements, db.insert(s.openEndpoints).values(rows.openEndpoints));
   if (rows.bondPoints.length) pushInsert(statements, db.insert(s.bondPoints).values(rows.bondPoints));
   if (rows.conductorEnds.length) pushInsert(statements, db.insert(s.conductorEnds).values(rows.conductorEnds));
+  if (rows.configurationNodes.length) pushInsert(statements, db.insert(s.wiringConfigurationNodes).values(rows.configurationNodes));
+  if (rows.conductorEndConnections.length) pushInsert(statements, db.insert(s.conductorEndConnections).values(rows.conductorEndConnections));
   pushInsert(statements, db.update(s.attachments).set({ ownerType: "asset", ownerId: rows.boxAssetId, revision: sql`${s.attachments.revision} + 1`, updatedAt: sql`CURRENT_TIMESTAMP` }).where(and(eq(s.attachments.propertyId, context.propertyId), eq(s.attachments.ownerType, "capture_draft"), eq(s.attachments.ownerId, id), eq(s.attachments.lifecycleState, "active"))));
   pushInsert(statements, db.update(s.captureDrafts).set({
     status: rows.materialization.status,

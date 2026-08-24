@@ -21,6 +21,7 @@ import {
   NotFoundError,
 } from "@/lib/http/responses";
 import { requireOwnedProperty } from "./workspaces";
+import { requireEditableWiringConfiguration, resolveWiringConfiguration } from "./wiring-configurations";
 
 type PropertyTable = SQLiteTable & {
   propertyId: typeof schema.assets.propertyId;
@@ -30,6 +31,7 @@ export type MutationContext = {
   identity: RequestIdentity;
   propertyId: string;
   requestId?: string | null;
+  wiringConfigurationId?: string | null;
 };
 
 export const resourceTables = {
@@ -101,6 +103,8 @@ const topologyKinds = new Set<ResourceKind>([
   "connections",
   "circuit-sources",
 ]);
+
+const configurationScopedKinds = new Set<ResourceKind>(["asset-mounts", "control-members", "control-links", "assertions"]);
 
 const idColumnByKind: Partial<Record<ResourceKind, string>> = {
   panels: "assetId",
@@ -343,11 +347,16 @@ export async function listResource(
   identity: RequestIdentity,
   propertyId: string,
   kind: ResourceKind,
+  configurationId?: string | null,
 ) {
   await requireOwnedProperty(identity, propertyId);
   const db = getDb();
   const table = tableFor(kind);
   const conditions: SQL[] = [eq(table.propertyId, propertyId)];
+  if (configurationScopedKinds.has(kind)) {
+    const configuration = await resolveWiringConfiguration(identity, propertyId, configurationId);
+    conditions.push(eq(columnFor(table, "wiringConfigurationId"), configuration.id));
+  }
   if (lifecycleKinds.has(kind)) {
     conditions.push(ne(columnFor(table, "lifecycleState"), "archived"));
   }
@@ -368,10 +377,12 @@ export async function getResource(
   propertyId: string,
   kind: ResourceKind,
   id: string,
+  configurationId?: string | null,
 ) {
   await requireOwnedProperty(identity, propertyId);
   const db = getDb();
   const table = tableFor(kind);
+  const configuration = configurationScopedKinds.has(kind) ? await resolveWiringConfiguration(identity, propertyId, configurationId) : null;
   const rows = await db
     .select()
     .from(table)
@@ -379,6 +390,7 @@ export async function getResource(
       and(
         eq(table.propertyId, propertyId),
         eq(columnFor(table, idColumnFor(kind)), id),
+        ...(configuration ? [eq(columnFor(table, "wiringConfigurationId"), configuration.id)] : []),
       ),
     )
     .limit(1);
@@ -405,6 +417,7 @@ export async function createResource(
   values: Record<string, unknown>,
 ) {
   await requireOwnedProperty(context.identity, context.propertyId);
+  const configuration = configurationScopedKinds.has(kind) ? await requireEditableWiringConfiguration(context.identity, context.propertyId, context.wiringConfigurationId) : null;
   const replay = await replayedResourceMutation(context, kind);
   if (replay) {
     return getResourceRow(context.identity, context.propertyId, kind, replay.entityId);
@@ -419,6 +432,7 @@ export async function createResource(
     ...cleanCreateValues(table, values),
     [idColumn]: id,
     propertyId: context.propertyId,
+    ...(configuration ? { wiringConfigurationId: configuration.id } : {}),
     ...(permanentCode && "permanentCode" in table ? { permanentCode } : {}),
   };
   const insert = db.insert(table).values(record as never);
@@ -481,6 +495,7 @@ export async function updateResource(
   values: Record<string, unknown>,
 ) {
   await requireOwnedProperty(context.identity, context.propertyId);
+  const configuration = configurationScopedKinds.has(kind) ? await requireEditableWiringConfiguration(context.identity, context.propertyId, context.wiringConfigurationId) : null;
   const replay = await replayedResourceMutation(context, kind);
   if (replay) {
     return getResourceRow(context.identity, context.propertyId, kind, replay.entityId);
@@ -496,6 +511,7 @@ export async function updateResource(
     eq(table.propertyId, context.propertyId),
     eq(idColumn, id),
   ];
+  if (configuration) conditions.push(eq(columnFor(table, "wiringConfigurationId"), configuration.id));
   if (supportsRevision) {
     conditions.push(eq(columnFor(table, "revision"), revision as number));
   }

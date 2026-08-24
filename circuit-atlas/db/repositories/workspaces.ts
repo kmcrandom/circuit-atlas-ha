@@ -8,6 +8,7 @@ import {
   properties,
   propertyCodeCounters,
   propertyRevisions,
+  wiringConfigurations,
   workspaces,
 } from "@/db/schema";
 import type { RequestIdentity } from "@/lib/auth/identity";
@@ -134,6 +135,7 @@ export async function createProperty(
   const db = getDb();
   const workspace = await ensureWorkspace(identity);
   const id = crypto.randomUUID();
+  const wiringConfigurationId = crypto.randomUUID();
 
   const result = await db
     .select({ value: sql<number>`coalesce(max(cast(substr(${properties.permanentCode}, 6) as integer)), 0) + 1` })
@@ -152,6 +154,13 @@ export async function createProperty(
         address: input.address ?? null,
       }),
       db.insert(propertyRevisions).values({ propertyId: id }),
+      db.insert(wiringConfigurations).values({
+        id: wiringConfigurationId,
+        propertyId: id,
+        name: "Current wiring",
+        status: "current",
+        effectiveAt: new Date().toISOString(),
+      }),
       db.insert(propertyCodeCounters).values([
         { propertyId: id, codePrefix: "PNL", nextValue: 1 },
         { propertyId: id, codePrefix: "BRK", nextValue: 1 },

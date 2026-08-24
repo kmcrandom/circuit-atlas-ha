@@ -3,11 +3,13 @@
 import { Camera, Cable, Plus } from "lucide-react";
 import { AppLink } from "@/lib/client/runtime-path";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { Dialog, Field, SafetyNotice } from "@/components/ui";
 import {
   BoxPhysicalLayout,
   BoxTerminationEditor,
+  BoxTerminationView,
   type BoxDiagramSelection,
   type BoxTerminationAddKind,
   type BoxTerminationChange,
@@ -17,7 +19,7 @@ import {
 } from "@/features/boxes";
 import type { InventoryAsset } from "@/features/inventory";
 import { useUrlSelection } from "@/features/selection";
-import { apiDelete, apiMutation, propertyApiPath, useApiResource } from "@/lib/client";
+import { apiDelete, apiMutation, appendQuery, propertyApiPath, useApiResource } from "@/lib/client";
 
 import {
   RouteError,
@@ -32,6 +34,7 @@ type BoxResponse = {
   layout: BoxPhysicalLayoutModel;
   topology?: unknown;
   termination?: BoxTerminationModel;
+  wiringConfiguration?: { id: string; name: string; status: "draft" | "planned" | "current" | "historical" };
 };
 
 type TerminationResponse = { termination: BoxTerminationModel };
@@ -195,8 +198,11 @@ function AddTerminationDialog({
 }
 
 export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: string }) {
+  const query = useSearchParams();
+  const configurationId = query.get("configurationId");
+  const withConfiguration = (path: string) => appendQuery(path, { configurationId });
   const selection = useUrlSelection();
-  const resource = useApiResource<BoxResponse>(propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}`));
+  const resource = useApiResource<BoxResponse>(withConfiguration(propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}`)));
   const [termination, setTermination] = useState<BoxTerminationModel>();
   const [pendingModel, setPendingModel] = useState<BoxTerminationModel>();
   const [isSaving, setIsSaving] = useState(false);
@@ -223,7 +229,7 @@ export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: st
     setMessage("Saving…");
     try {
       const response = await apiMutation<TerminationResponse>(
-        propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}/terminations/${kind}/${encodeURIComponent(change.id)}`),
+        withConfiguration(propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}/terminations/${kind}/${encodeURIComponent(change.id)}`)),
         "PATCH",
         { requestId: `box-termination:${crypto.randomUUID()}`, revision, values: valuesForChange(nextModel, change) },
       );
@@ -250,7 +256,7 @@ export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: st
     setMessage("Saving…");
     try {
       const response = await apiDelete<TerminationResponse>(
-        propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}/terminations/${routeKindBySelection[next.kind]}/${encodeURIComponent(next.id)}`),
+        withConfiguration(propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}/terminations/${routeKindBySelection[next.kind]}/${encodeURIComponent(next.id)}`)),
         { requestId: `box-termination-remove:${crypto.randomUUID()}`, revision },
       );
       setTermination(response.termination);
@@ -279,7 +285,7 @@ export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: st
     setMessage("Saving…");
     try {
       const response = await apiMutation<TerminationResponse>(
-        propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}/terminations`),
+        withConfiguration(propertyApiPath(propertyId, `boxes/${encodeURIComponent(boxId)}/terminations`)),
         "POST",
         input,
       );
@@ -302,7 +308,7 @@ export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: st
             <AppLink className={secondaryButtonClass} href={`/p/${encodeURIComponent(propertyId)}/capture/new?targetId=${encodeURIComponent(boxId)}&targetKind=box`}>
               <Camera aria-hidden="true" className="size-4" /> Continue room walk
             </AppLink>
-            <AppLink className={secondaryButtonClass} href={`/p/${encodeURIComponent(propertyId)}/wiring?rootKind=box&rootId=${encodeURIComponent(boxId)}`}>
+            <AppLink className={secondaryButtonClass} href={appendQuery(`/p/${encodeURIComponent(propertyId)}/wiring`, { rootKind: "box", rootId: boxId, configurationId })}>
               <Cable aria-hidden="true" className="size-4" /> Trace wiring
             </AppLink>
           </>
@@ -327,7 +333,7 @@ export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: st
             <p className="mt-1 text-sm leading-6 text-slate-600">Each A/B conductor end terminates independently at a terminal, splice, cap/open point, or bond. Changes save as you make them.</p>
           </header>
           {message ? <p aria-live="polite" className={`mb-4 rounded-xl border px-4 py-3 text-sm ${message.endsWith(".") && (message === "Saved." || message === "Added." || message === "Removed.") ? "border-emerald-200 bg-emerald-50 text-emerald-950" : message === "Saving…" ? "border-blue-200 bg-blue-50 text-blue-950" : "border-rose-200 bg-rose-50 text-rose-950"}`} role="status">{message}</p> : null}
-          <BoxTerminationEditor
+          {data.wiringConfiguration?.status === "historical" ? <BoxTerminationView model={model} selected={selectedTermination} onSelect={setSelectedTermination} /> : <BoxTerminationEditor
             model={model}
             onChange={(nextModel, change) => void changeTermination(nextModel, change)}
             onRequestAdd={(kind) => setAddDraft(blankDraft(kind))}
@@ -337,7 +343,7 @@ export function BoxClient({ propertyId, boxId }: { propertyId: string; boxId: st
               selection.select({ kind: next.kind.replaceAll("-", "_"), id: next.id }, { replace: true });
             }}
             selected={selectedTermination}
-          />
+          />}
         </section>
       ) : null}
 

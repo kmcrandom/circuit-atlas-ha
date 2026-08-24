@@ -232,6 +232,9 @@ export const changeEventKinds = ["create", "update", "archive", "restore", "repl
 export const captureDraftStatuses = ["in_progress", "ready_for_review", "completed", "abandoned"] as const;
 export const traceGapStatuses = ["open", "resolved", "accepted_unknown"] as const;
 export const assertionStatuses = ["active", "superseded", "rejected", "conflicting"] as const;
+export const wiringConfigurationStatuses = ["draft", "planned", "current", "historical"] as const;
+export const conductorConnectionStates = ["connected", "capped", "spare", "abandoned", "repurposed", "unknown"] as const;
+export const wiringConfigurationScopeKinds = ["circuit", "control_group", "box", "asset"] as const;
 
 function enumCheck(column: AnySQLiteColumn, values: readonly string[]): SQL {
   const literals = values.map((value) => `'${value.replaceAll("'", "''")}'`).join(", ");
@@ -281,6 +284,37 @@ export const properties = sqliteTable(
     check("properties_preferences_json_ck", sql`json_valid(${table.preferencesJson})`),
     check("properties_naming_config_json_ck", sql`json_valid(${table.namingConfigJson})`),
     check("properties_revision_ck", sql`${table.revision} >= 1`),
+  ],
+);
+
+export const wiringConfigurations = sqliteTable(
+  "wiring_configurations",
+  {
+    id: text("id").primaryKey(),
+    propertyId: text("property_id").notNull().references(() => properties.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    status: text("status", { enum: wiringConfigurationStatuses }).notNull().default("draft"),
+    sourceConfigurationId: text("source_configuration_id").references((): AnySQLiteColumn => wiringConfigurations.id, { onDelete: "restrict" }),
+    supersedesConfigurationId: text("supersedes_configuration_id").references((): AnySQLiteColumn => wiringConfigurations.id, { onDelete: "restrict" }),
+    summary: text("summary"),
+    verificationState: text("verification_state", { enum: knowledgeStates }).notNull().default("unknown"),
+    capturedAt: text("captured_at"),
+    effectiveAt: text("effective_at"),
+    finalizedAt: text("finalized_at"),
+    revision: integer("revision").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (table) => [
+    unique("wiring_configurations_property_id_id_uq").on(table.propertyId, table.id),
+    uniqueIndex("wiring_configurations_one_current_uq").on(table.propertyId).where(sql`${table.status} = 'current'`),
+    index("wiring_configurations_property_status_idx").on(table.propertyId, table.status, table.updatedAt),
+    foreignKey({ name: "wiring_configurations_property_source_fk", columns: [table.propertyId, table.sourceConfigurationId], foreignColumns: [table.propertyId, table.id] }).onDelete("restrict"),
+    foreignKey({ name: "wiring_configurations_property_supersedes_fk", columns: [table.propertyId, table.supersedesConfigurationId], foreignColumns: [table.propertyId, table.id] }).onDelete("restrict"),
+    check("wiring_configurations_status_ck", enumCheck(table.status, wiringConfigurationStatuses)),
+    check("wiring_configurations_verification_ck", enumCheck(table.verificationState, knowledgeStates)),
+    check("wiring_configurations_revision_ck", sql`${table.revision} >= 1`),
+    check("wiring_configurations_finalized_ck", sql`${table.status} <> 'historical' or ${table.finalizedAt} is not null`),
   ],
 );
 
@@ -1115,6 +1149,7 @@ export const assetMounts = sqliteTable(
   {
     id: text("id").primaryKey(),
     propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
     boxAssetId: text("box_asset_id").notNull(),
     mountedAssetId: text("mounted_asset_id").notNull(),
     startGangIndex: integer("start_gang_index").notNull(),
@@ -1129,8 +1164,10 @@ export const assetMounts = sqliteTable(
   (table) => [
     unique("asset_mounts_property_id_id_uq").on(table.propertyId, table.id),
     unique("asset_mounts_property_box_id_uq").on(table.propertyId, table.boxAssetId, table.id),
-    unique("asset_mounts_asset_uq").on(table.propertyId, table.mountedAssetId),
-    index("asset_mounts_box_idx").on(table.propertyId, table.boxAssetId, table.startGangIndex),
+    unique("asset_mounts_property_configuration_box_id_uq").on(table.propertyId, table.wiringConfigurationId, table.boxAssetId, table.id),
+    unique("asset_mounts_asset_uq").on(table.propertyId, table.wiringConfigurationId, table.mountedAssetId),
+    index("asset_mounts_box_idx").on(table.propertyId, table.wiringConfigurationId, table.boxAssetId, table.startGangIndex),
+    foreignKey({ name: "asset_mounts_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
     foreignKey({ name: "asset_mounts_property_box_fk", columns: [table.propertyId, table.boxAssetId], foreignColumns: [boxes.propertyId, boxes.assetId] }).onDelete("restrict"),
     foreignKey({ name: "asset_mounts_property_asset_fk", columns: [table.propertyId, table.mountedAssetId], foreignColumns: [assets.propertyId, assets.id] }).onDelete("restrict"),
     check("asset_mounts_start_gang_ck", sql`${table.startGangIndex} >= 1`),
@@ -1145,14 +1182,16 @@ export const assetMountPositions = sqliteTable(
   "asset_mount_positions",
   {
     propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
     mountId: text("mount_id").notNull(),
     boxAssetId: text("box_asset_id").notNull(),
     gangIndex: integer("gang_index").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.propertyId, table.mountId, table.gangIndex], name: "asset_mount_positions_pk" }),
-    unique("asset_mount_positions_box_gang_uq").on(table.propertyId, table.boxAssetId, table.gangIndex),
-    foreignKey({ name: "asset_mount_positions_property_mount_fk", columns: [table.propertyId, table.boxAssetId, table.mountId], foreignColumns: [assetMounts.propertyId, assetMounts.boxAssetId, assetMounts.id] }).onDelete("restrict"),
+    primaryKey({ columns: [table.propertyId, table.wiringConfigurationId, table.mountId, table.gangIndex], name: "asset_mount_positions_pk" }),
+    unique("asset_mount_positions_box_gang_uq").on(table.propertyId, table.wiringConfigurationId, table.boxAssetId, table.gangIndex),
+    foreignKey({ name: "asset_mount_positions_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
+    foreignKey({ name: "asset_mount_positions_property_mount_fk", columns: [table.propertyId, table.wiringConfigurationId, table.boxAssetId, table.mountId], foreignColumns: [assetMounts.propertyId, assetMounts.wiringConfigurationId, assetMounts.boxAssetId, assetMounts.id] }).onDelete("restrict"),
     check("asset_mount_positions_gang_ck", sql`${table.gangIndex} >= 1`),
   ],
 );
@@ -1396,6 +1435,54 @@ export const conductorEnds = sqliteTable(
   ],
 );
 
+export const wiringConfigurationNodes = sqliteTable(
+  "wiring_configuration_nodes",
+  {
+    propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
+    electricalNodeId: text("electrical_node_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.propertyId, table.wiringConfigurationId, table.electricalNodeId], name: "wiring_configuration_nodes_pk" }),
+    index("wiring_configuration_nodes_node_idx").on(table.propertyId, table.electricalNodeId, table.wiringConfigurationId),
+    foreignKey({ name: "wiring_configuration_nodes_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
+    foreignKey({ name: "wiring_configuration_nodes_property_node_fk", columns: [table.propertyId, table.electricalNodeId], foreignColumns: [electricalNodes.propertyId, electricalNodes.id] }).onDelete("restrict"),
+  ],
+);
+
+export const conductorEndConnections = sqliteTable(
+  "conductor_end_connections",
+  {
+    id: text("id").primaryKey(),
+    propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
+    conductorEndId: text("conductor_end_id").notNull(),
+    electricalNodeId: text("electrical_node_id"),
+    terminationMethod: text("termination_method", { enum: terminationMethods }).notNull().default("unknown"),
+    certainty: text("certainty", { enum: knowledgeStates }).notNull().default("unknown"),
+    conductorRole: text("conductor_role", { enum: conductorRoles }).notNull().default("unknown"),
+    connectionState: text("connection_state", { enum: conductorConnectionStates }).notNull().default("connected"),
+    notes: text("notes"),
+    revision: integer("revision").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (table) => [
+    unique("conductor_end_connections_property_id_id_uq").on(table.propertyId, table.id),
+    unique("conductor_end_connections_configuration_end_uq").on(table.propertyId, table.wiringConfigurationId, table.conductorEndId),
+    index("conductor_end_connections_node_idx").on(table.propertyId, table.wiringConfigurationId, table.electricalNodeId),
+    foreignKey({ name: "conductor_end_connections_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
+    foreignKey({ name: "conductor_end_connections_property_end_fk", columns: [table.propertyId, table.conductorEndId], foreignColumns: [conductorEnds.propertyId, conductorEnds.id] }).onDelete("restrict"),
+    foreignKey({ name: "conductor_end_connections_property_node_fk", columns: [table.propertyId, table.electricalNodeId], foreignColumns: [electricalNodes.propertyId, electricalNodes.id] }).onDelete("restrict"),
+    check("conductor_end_connections_termination_ck", enumCheck(table.terminationMethod, terminationMethods)),
+    check("conductor_end_connections_certainty_ck", enumCheck(table.certainty, knowledgeStates)),
+    check("conductor_end_connections_role_ck", enumCheck(table.conductorRole, conductorRoles)),
+    check("conductor_end_connections_state_ck", enumCheck(table.connectionState, conductorConnectionStates)),
+    check("conductor_end_connections_node_state_ck", sql`(${table.connectionState} = 'connected' and ${table.electricalNodeId} is not null) or (${table.connectionState} <> 'connected')`),
+    check("conductor_end_connections_revision_ck", sql`${table.revision} >= 1`),
+  ],
+);
+
 export const internalConnections = sqliteTable(
   "internal_connections",
   {
@@ -1495,6 +1582,7 @@ export const assetCircuitAssertions = sqliteTable(
   {
     id: text("id").primaryKey(),
     propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
     assetId: text("asset_id").notNull(),
     assetFunctionId: text("asset_function_id"),
     circuitId: text("circuit_id").notNull(),
@@ -1508,8 +1596,9 @@ export const assetCircuitAssertions = sqliteTable(
   },
   (table) => [
     unique("asset_circuit_assertions_property_id_id_uq").on(table.propertyId, table.id),
-    index("asset_circuit_assertions_asset_idx").on(table.propertyId, table.assetId, table.status),
-    index("asset_circuit_assertions_circuit_idx").on(table.propertyId, table.circuitId, table.status),
+    index("asset_circuit_assertions_asset_idx").on(table.propertyId, table.wiringConfigurationId, table.assetId, table.status),
+    index("asset_circuit_assertions_circuit_idx").on(table.propertyId, table.wiringConfigurationId, table.circuitId, table.status),
+    foreignKey({ name: "asset_circuit_assertions_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
     foreignKey({ name: "asset_circuit_assertions_property_asset_fk", columns: [table.propertyId, table.assetId], foreignColumns: [assets.propertyId, assets.id] }).onDelete("restrict"),
     foreignKey({ name: "asset_circuit_assertions_property_function_fk", columns: [table.propertyId, table.assetId, table.assetFunctionId], foreignColumns: [assetFunctions.propertyId, assetFunctions.assetId, assetFunctions.id] }).onDelete("restrict"),
     foreignKey({ name: "asset_circuit_assertions_property_circuit_fk", columns: [table.propertyId, table.circuitId], foreignColumns: [circuits.propertyId, circuits.id] }).onDelete("restrict"),
@@ -1525,6 +1614,7 @@ export const traceGaps = sqliteTable(
   {
     id: text("id").primaryKey(),
     propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
     fromNodeId: text("from_node_id"),
     toNodeId: text("to_node_id"),
     fromAssetId: text("from_asset_id"),
@@ -1539,9 +1629,10 @@ export const traceGaps = sqliteTable(
   },
   (table) => [
     unique("trace_gaps_property_id_id_uq").on(table.propertyId, table.id),
-    index("trace_gaps_status_idx").on(table.propertyId, table.status),
-    index("trace_gaps_from_node_idx").on(table.propertyId, table.fromNodeId),
-    index("trace_gaps_to_node_idx").on(table.propertyId, table.toNodeId),
+    index("trace_gaps_status_idx").on(table.propertyId, table.wiringConfigurationId, table.status),
+    index("trace_gaps_from_node_idx").on(table.propertyId, table.wiringConfigurationId, table.fromNodeId),
+    index("trace_gaps_to_node_idx").on(table.propertyId, table.wiringConfigurationId, table.toNodeId),
+    foreignKey({ name: "trace_gaps_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
     foreignKey({ name: "trace_gaps_property_from_node_fk", columns: [table.propertyId, table.fromNodeId], foreignColumns: [electricalNodes.propertyId, electricalNodes.id] }).onDelete("restrict"),
     foreignKey({ name: "trace_gaps_property_to_node_fk", columns: [table.propertyId, table.toNodeId], foreignColumns: [electricalNodes.propertyId, electricalNodes.id] }).onDelete("restrict"),
     foreignKey({ name: "trace_gaps_property_from_asset_fk", columns: [table.propertyId, table.fromAssetId], foreignColumns: [assets.propertyId, assets.id] }).onDelete("restrict"),
@@ -1576,11 +1667,31 @@ export const controlGroups = sqliteTable(
   ],
 );
 
+export const wiringConfigurationScopes = sqliteTable(
+  "wiring_configuration_scopes",
+  {
+    id: text("id").primaryKey(),
+    propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
+    scopeKind: text("scope_kind", { enum: wiringConfigurationScopeKinds }).notNull(),
+    targetId: text("target_id").notNull(),
+    notes: text("notes"),
+  },
+  (table) => [
+    unique("wiring_configuration_scopes_property_id_id_uq").on(table.propertyId, table.id),
+    unique("wiring_configuration_scopes_target_uq").on(table.propertyId, table.wiringConfigurationId, table.scopeKind, table.targetId),
+    index("wiring_configuration_scopes_configuration_idx").on(table.propertyId, table.wiringConfigurationId, table.scopeKind),
+    foreignKey({ name: "wiring_configuration_scopes_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
+    check("wiring_configuration_scopes_kind_ck", enumCheck(table.scopeKind, wiringConfigurationScopeKinds)),
+  ],
+);
+
 export const controlMembers = sqliteTable(
   "control_members",
   {
     id: text("id").primaryKey(),
     propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
     controlGroupId: text("control_group_id").notNull(),
     assetFunctionId: text("asset_function_id").notNull(),
     role: text("role", { enum: controlRoles }).notNull(),
@@ -1590,9 +1701,10 @@ export const controlMembers = sqliteTable(
   },
   (table) => [
     unique("control_members_property_id_id_uq").on(table.propertyId, table.id),
-    unique("control_members_group_function_role_uq").on(table.propertyId, table.controlGroupId, table.assetFunctionId, table.role),
-    index("control_members_group_idx").on(table.propertyId, table.controlGroupId, table.role, table.sortOrder),
-    index("control_members_function_idx").on(table.propertyId, table.assetFunctionId),
+    unique("control_members_group_function_role_uq").on(table.propertyId, table.wiringConfigurationId, table.controlGroupId, table.assetFunctionId, table.role),
+    index("control_members_group_idx").on(table.propertyId, table.wiringConfigurationId, table.controlGroupId, table.role, table.sortOrder),
+    index("control_members_function_idx").on(table.propertyId, table.wiringConfigurationId, table.assetFunctionId),
+    foreignKey({ name: "control_members_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
     foreignKey({ name: "control_members_property_group_fk", columns: [table.propertyId, table.controlGroupId], foreignColumns: [controlGroups.propertyId, controlGroups.id] }).onDelete("restrict"),
     foreignKey({ name: "control_members_property_function_fk", columns: [table.propertyId, table.assetFunctionId], foreignColumns: [assetFunctions.propertyId, assetFunctions.id] }).onDelete("restrict"),
     check("control_members_role_ck", enumCheck(table.role, controlRoles)),
@@ -1605,6 +1717,7 @@ export const controlLinks = sqliteTable(
   {
     id: text("id").primaryKey(),
     propertyId: text("property_id").notNull(),
+    wiringConfigurationId: text("wiring_configuration_id").notNull(),
     controlGroupId: text("control_group_id").notNull(),
     fromFunctionId: text("from_function_id").notNull(),
     toFunctionId: text("to_function_id").notNull(),
@@ -1614,9 +1727,10 @@ export const controlLinks = sqliteTable(
   },
   (table) => [
     unique("control_links_property_id_id_uq").on(table.propertyId, table.id),
-    unique("control_links_edge_uq").on(table.propertyId, table.controlGroupId, table.fromFunctionId, table.toFunctionId, table.method),
-    index("control_links_from_idx").on(table.propertyId, table.fromFunctionId),
-    index("control_links_to_idx").on(table.propertyId, table.toFunctionId),
+    unique("control_links_edge_uq").on(table.propertyId, table.wiringConfigurationId, table.controlGroupId, table.fromFunctionId, table.toFunctionId, table.method),
+    index("control_links_from_idx").on(table.propertyId, table.wiringConfigurationId, table.fromFunctionId),
+    index("control_links_to_idx").on(table.propertyId, table.wiringConfigurationId, table.toFunctionId),
+    foreignKey({ name: "control_links_property_configuration_fk", columns: [table.propertyId, table.wiringConfigurationId], foreignColumns: [wiringConfigurations.propertyId, wiringConfigurations.id] }).onDelete("restrict"),
     foreignKey({ name: "control_links_property_group_fk", columns: [table.propertyId, table.controlGroupId], foreignColumns: [controlGroups.propertyId, controlGroups.id] }).onDelete("restrict"),
     foreignKey({ name: "control_links_property_from_function_fk", columns: [table.propertyId, table.fromFunctionId], foreignColumns: [assetFunctions.propertyId, assetFunctions.id] }).onDelete("restrict"),
     foreignKey({ name: "control_links_property_to_function_fk", columns: [table.propertyId, table.toFunctionId], foreignColumns: [assetFunctions.propertyId, assetFunctions.id] }).onDelete("restrict"),
@@ -1803,9 +1917,11 @@ export const changeEvents = sqliteTable(
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type Property = typeof properties.$inferSelect;
+export type WiringConfiguration = typeof wiringConfigurations.$inferSelect;
 export type Asset = typeof assets.$inferSelect;
 export type Circuit = typeof circuits.$inferSelect;
 export type Conductor = typeof conductors.$inferSelect;
 export type ConductorEnd = typeof conductorEnds.$inferSelect;
+export type ConductorEndConnection = typeof conductorEndConnections.$inferSelect;
 export type ElectricalNode = typeof electricalNodes.$inferSelect;
 export type InternalConnection = typeof internalConnections.$inferSelect;
