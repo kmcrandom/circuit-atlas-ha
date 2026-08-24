@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-08-23
+
+- Fix primary action buttons whose labels could blend into their background until hover.
+- Add desktop and mobile browser coverage for the affected settings actions and hover state.
+
 ## 0.2.0 - 2026-08-23
 
 - Generate internal structure, level, space, and wall/zone identifiers automatically while keeping administrative codes out of ordinary workflows.

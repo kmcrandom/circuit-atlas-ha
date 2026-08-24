@@ -16,7 +16,7 @@ RUN npm run build
 FROM node:${NODE_VERSION}-bookworm-slim AS runner
 
 ARG BUILD_ARCH=aarch64
-ARG BUILD_VERSION=0.2.0
+ARG BUILD_VERSION=0.2.1
 
 LABEL \
     io.hass.version="${BUILD_VERSION}" \
