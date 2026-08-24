@@ -50,21 +50,23 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-button,
-input,
-select,
-textarea {
-  color: inherit;
-  font: inherit;
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    color: inherit;
+    font: inherit;
+  }
+
+  a {
+    color: inherit;
+  }
 }
 
 button,
 a {
   -webkit-tap-highlight-color: transparent;
-}
-
-a {
-  color: inherit;
 }
 
 :focus-visible {
