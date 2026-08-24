@@ -18,7 +18,7 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.7.1",
+    "@hookform/resolvers": "^5.9.1",
     "@xyflow/react": "^12.11.3",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "0.45.2",
