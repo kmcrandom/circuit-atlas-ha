@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-08-24
+
+- Preserve current, planned, and historical wiring configurations so conventional multi-way wiring remains documented after smart-switch upgrades.
+- Track every conductor end independently as connected, capped, spare, abandoned, repurposed, or unknown, with configuration-specific roles and terminations.
+- Clone current or historical wiring into an editable plan, compare it with current wiring, and explicitly activate it without mutating prior history.
+- Migrate existing properties into a baseline current configuration and include configuration history in private exports and imports.
+- Open a sole property directly from the root route, retain the property chooser for multiple houses, and fix the property-card action/statistic overlap.
+
 ## 0.2.1 - 2026-08-23
 
 - Fix primary action buttons whose labels could blend into their background until hover.
